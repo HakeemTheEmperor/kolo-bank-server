@@ -1,0 +1,14 @@
+# Go build output / binaries
+/bin/
+/out/
+*.exe
+*.test
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/

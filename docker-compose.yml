@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kolo
+      POSTGRES_PASSWORD: kolo
+      POSTGRES_DB: kolo_bank
+    ports:
+      - "5432:5432"
+    volumes:
+      - kolo_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kolo -d kolo_bank"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: "postgres://kolo:kolo@postgres:5432/kolo_bank?sslmode=disable"
+      LOG_LEVEL: "debug"
+      KOLO_KEY_ledger-signing: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA=="
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  kolo_postgres_data:
