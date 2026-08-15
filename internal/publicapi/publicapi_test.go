@@ -12,6 +12,7 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
 	"github.com/toluwalase/kolo-bank-server/internal/auth"
+	"github.com/toluwalase/kolo-bank-server/internal/cards"
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
 	"github.com/toluwalase/kolo-bank-server/internal/compliance"
@@ -41,6 +42,7 @@ type testEnv struct {
 	externalSvc *externalpayments.Service
 	apiKeysSvc  *apikeys.Service
 	authSvc     *auth.Service
+	cardsSvc    *cards.Service
 }
 
 func newTestEnv(t *testing.T) testEnv {
@@ -68,6 +70,7 @@ func newTestEnv(t *testing.T) testEnv {
 		Consent:       consent.NewService(pool),
 		Disputes:      disputes.NewService(pool, nil),
 		Recovery:      recovery.NewService(pool, identitySvc, authSvc, kyc.NewStubProvider()),
+		Cards:         cards.NewService(pool, ledgerSvc),
 		Pool:          pool,
 		PublicBaseURL: "https://api.kolobank.example",
 	}
@@ -79,6 +82,7 @@ func newTestEnv(t *testing.T) testEnv {
 		externalSvc: externalSvc,
 		apiKeysSvc:  deps.ApiKeys,
 		authSvc:     deps.Auth,
+		cardsSvc:    deps.Cards,
 	}
 }
 

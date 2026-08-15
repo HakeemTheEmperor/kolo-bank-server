@@ -201,6 +201,40 @@ func TestCreateDisputeRejectsUnownedTransfer(t *testing.T) {
 	}
 }
 
+// TestCreateDisputeOnCoolingOffTransfer covers a path that was silently
+// broken from Phase 8 through the start of Phase 9: this handler already
+// accepted source_type "cooling_off_transfer", but the disputes table's
+// CHECK constraint (00036_create_dispute_tables.sql) didn't allow it until
+// 00043_widen_dispute_source_types.sql. No prior test exercised it.
+func TestCreateDisputeOnCoolingOffTransfer(t *testing.T) {
+	env := newTestEnv(t)
+	_, senderToken := newIndividualWithSession(t, env, "Alice Sender", 1_000_000_00)
+	_, _ = newIndividualWithSession(t, env, "Eve Recipient", 0)
+
+	var recipientEmail string
+	if err := env.pool.QueryRow(context.Background(), `SELECT email FROM identities WHERE legal_name = 'Eve Recipient'`).Scan(&recipientEmail); err != nil {
+		t.Fatalf("look up recipient email: %v", err)
+	}
+
+	transferRec := doRequest(t, env, http.MethodPost, "/v1/me/transfers", senderToken, testsupport.RandomKey(), map[string]any{
+		"recipient_email": recipientEmail, "recipient_name": "Eve Recipient", "amount_minor": 1000_00, "currency": "NGN",
+	})
+	if transferRec.Code != http.StatusCreated {
+		t.Fatalf("create transfer status = %d, body = %s", transferRec.Code, transferRec.Body.String())
+	}
+	var transferBody struct {
+		PendingID string `json:"pending_id"`
+	}
+	decodeBody(t, transferRec, &transferBody)
+
+	disputeRec := doRequest(t, env, http.MethodPost, "/v1/me/disputes", senderToken, "", map[string]any{
+		"source_type": "cooling_off_transfer", "source_id": transferBody.PendingID, "reason": "changed my mind",
+	})
+	if disputeRec.Code != http.StatusCreated {
+		t.Fatalf("create dispute status = %d, body = %s", disputeRec.Code, disputeRec.Body.String())
+	}
+}
+
 func TestRecoveryInitiateAndCompletePublic(t *testing.T) {
 	env := newTestEnv(t)
 	_, _ = newIndividualWithSession(t, env, "Recovery Test User", 0)

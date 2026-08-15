@@ -8,6 +8,7 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
 	"github.com/toluwalase/kolo-bank-server/internal/auth"
+	"github.com/toluwalase/kolo-bank-server/internal/cards"
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
 	"github.com/toluwalase/kolo-bank-server/internal/consent"
@@ -43,6 +44,7 @@ type Deps struct {
 	Consent       *consent.Service
 	Disputes      *disputes.Service
 	Recovery      *recovery.Service
+	Cards         *cards.Service
 	Pool          *pgxpool.Pool
 	Logger        *slog.Logger
 	PublicBaseURL string
@@ -105,6 +107,18 @@ func New(deps Deps) http.Handler {
 	mux.Handle("POST /v1/me/disputes", withSessionAuth(http.HandlerFunc(a.createDispute)))
 	mux.Handle("GET /v1/me/disputes", withSessionAuth(http.HandlerFunc(a.listDisputes)))
 	mux.Handle("GET /v1/me/disputes/{id}", withSessionAuth(http.HandlerFunc(a.getDispute)))
+
+	// Cards (docs/banking-backend-spec.md §3.5) — issuing and controls are
+	// customer actions; authorize/settle/void stay service-layer only (see
+	// card_handlers.go / the plan doc) since no HTTP caller of ours would
+	// play the role of the card network.
+	mux.Handle("POST /v1/me/cards", chain(withSessionAuth, requireIdempotencyKey)(http.HandlerFunc(a.issueCard)))
+	mux.Handle("GET /v1/me/cards", withSessionAuth(http.HandlerFunc(a.listCards)))
+	mux.Handle("POST /v1/me/cards/{id}/freeze", withSessionAuth(http.HandlerFunc(a.freezeCard)))
+	mux.Handle("POST /v1/me/cards/{id}/unfreeze", withSessionAuth(http.HandlerFunc(a.unfreezeCard)))
+	mux.Handle("PUT /v1/me/cards/{id}/limits", withSessionAuth(http.HandlerFunc(a.setCardLimits)))
+	mux.Handle("GET /v1/me/cards/{id}/authorizations", withSessionAuth(http.HandlerFunc(a.listCardAuthorizations)))
+	mux.Handle("POST /v1/me/cards/authorizations/{id}/3ds", withSessionAuth(http.HandlerFunc(a.completeCard3DS)))
 
 	// Account recovery — deliberately public; see recovery_handlers.go.
 	recoveryLimiter := newRateLimiter(0.5, 5)

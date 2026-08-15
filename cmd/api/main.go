@@ -14,6 +14,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
 	"github.com/toluwalase/kolo-bank-server/internal/auth"
 	"github.com/toluwalase/kolo-bank-server/internal/bills"
+	"github.com/toluwalase/kolo-bank-server/internal/cards"
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
 	"github.com/toluwalase/kolo-bank-server/internal/compliance"
@@ -108,6 +109,7 @@ func run() error {
 	consentSvc := consent.NewService(db.Pool)
 	disputesSvc := disputes.NewService(db.Pool, logger)
 	recoverySvc := recovery.NewService(db.Pool, identitySvc, authSvc, kyc.NewStubProvider())
+	cardsSvc := cards.NewService(db.Pool, ledgerSvc)
 
 	go runScheduler(ctx, schedulerSvc, billsSvc, logger)
 	go runExternalPayments(ctx, externalSvc, logger)
@@ -129,6 +131,7 @@ func run() error {
 		Consent:       consentSvc,
 		Disputes:      disputesSvc,
 		Recovery:      recoverySvc,
+		Cards:         cardsSvc,
 		Pool:          db.Pool,
 		Logger:        logger,
 		PublicBaseURL: cfg.PublicBaseURL,

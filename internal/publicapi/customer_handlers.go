@@ -248,8 +248,8 @@ func (a *api) createDispute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "malformed JSON body")
 		return
 	}
-	if req.SourceType != "external_transfer" && req.SourceType != "cooling_off_transfer" {
-		writeError(w, http.StatusBadRequest, "invalid_source_type", `source_type must be "external_transfer" or "cooling_off_transfer"`)
+	if req.SourceType != "external_transfer" && req.SourceType != "cooling_off_transfer" && req.SourceType != "card_authorization" {
+		writeError(w, http.StatusBadRequest, "invalid_source_type", `source_type must be "external_transfer", "cooling_off_transfer", or "card_authorization"`)
 		return
 	}
 
@@ -283,6 +283,8 @@ func (a *api) ownsTransfer(r *http.Request, identityID, sourceType, sourceID str
 		query = `SELECT EXISTS(SELECT 1 FROM external_transfers et JOIN accounts a ON a.id = et.account_id WHERE et.id = $1 AND a.owner_id = $2)`
 	case "cooling_off_transfer":
 		query = `SELECT EXISTS(SELECT 1 FROM cooling_off_transfers WHERE id = $1 AND from_identity_id = $2)`
+	case "card_authorization":
+		query = `SELECT EXISTS(SELECT 1 FROM card_authorizations ca JOIN accounts a ON a.id = ca.account_id WHERE ca.id = $1 AND a.owner_id = $2)`
 	default:
 		return false, nil
 	}
