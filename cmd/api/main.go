@@ -13,8 +13,12 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/config"
 	"github.com/toluwalase/kolo-bank-server/internal/httpserver"
+	"github.com/toluwalase/kolo-bank-server/internal/identity"
+	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/observability"
+	"github.com/toluwalase/kolo-bank-server/internal/payments"
 	"github.com/toluwalase/kolo-bank-server/internal/postgres"
+	"github.com/toluwalase/kolo-bank-server/internal/scheduler"
 )
 
 func main() {
@@ -54,6 +58,12 @@ func run() error {
 	}
 	defer db.Close()
 
+	identitySvc := identity.NewService(db.Pool)
+	ledgerSvc := ledger.NewService(db.Pool)
+	paymentsSvc := payments.NewService(db.Pool, ledgerSvc, identitySvc)
+	schedulerSvc := scheduler.NewService(db.Pool, paymentsSvc, logger)
+	go runScheduler(ctx, schedulerSvc, logger)
+
 	handler := httpserver.New(logger, db)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -89,4 +99,29 @@ func run() error {
 
 	logger.Info("shutdown complete")
 	return nil
+}
+
+// runScheduler periodically executes due scheduled transfers and sweeps
+// any left stuck mid-execution (docs/banking-backend-spec.md §3.4, §4.4).
+// It stops when ctx is cancelled, e.g. on shutdown signal.
+func runScheduler(ctx context.Context, svc *scheduler.Service, logger *slog.Logger) {
+	dueTicker := time.NewTicker(10 * time.Second)
+	defer dueTicker.Stop()
+	stuckTicker := time.NewTicker(60 * time.Second)
+	defer stuckTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-dueTicker.C:
+			if err := svc.RunDue(ctx); err != nil {
+				logger.ErrorContext(ctx, "scheduler: run due failed", slog.Any("error", err))
+			}
+		case <-stuckTicker.C:
+			if err := svc.ResolveStuck(ctx); err != nil {
+				logger.ErrorContext(ctx, "scheduler: resolve stuck failed", slog.Any("error", err))
+			}
+		}
+	}
 }
