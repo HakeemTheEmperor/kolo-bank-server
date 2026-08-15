@@ -18,6 +18,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
 	"github.com/toluwalase/kolo-bank-server/internal/config"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
+	"github.com/toluwalase/kolo-bank-server/internal/fees"
 	"github.com/toluwalase/kolo-bank-server/internal/httpserver"
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
@@ -27,8 +28,10 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/postgres"
 	"github.com/toluwalase/kolo-bank-server/internal/publicapi"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/reconciliation"
 	"github.com/toluwalase/kolo-bank-server/internal/scheduler"
 	"github.com/toluwalase/kolo-bank-server/internal/secrets"
+	"github.com/toluwalase/kolo-bank-server/internal/settlement"
 	"github.com/toluwalase/kolo-bank-server/internal/tokens"
 	"github.com/toluwalase/kolo-bank-server/internal/webhooks"
 )
@@ -88,9 +91,14 @@ func run() error {
 	checkoutSvc := checkout.NewService(db.Pool)
 	webhooksSvc := webhooks.NewService(db.Pool, keyProvider)
 
+	feesSvc := fees.NewService(db.Pool, ledgerSvc, logger)
+	settlementSvc := settlement.NewService(db.Pool, payoutsSvc, logger)
+	reconciliationSvc := reconciliation.NewService(db.Pool, logger)
+
 	go runScheduler(ctx, schedulerSvc, billsSvc, logger)
 	go runExternalPayments(ctx, externalSvc, logger)
 	go runWebhooks(ctx, webhooksSvc, logger)
+	go runMoneyControls(ctx, feesSvc, settlementSvc, reconciliationSvc, logger)
 
 	apiHandler := publicapi.New(publicapi.Deps{
 		ApiKeys:       apiKeysSvc,
@@ -216,6 +224,46 @@ func runWebhooks(ctx context.Context, svc *webhooks.Service, logger *slog.Logger
 		case <-deliverTicker.C:
 			if err := svc.DeliverPending(ctx); err != nil {
 				logger.ErrorContext(ctx, "webhooks: deliver pending failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// runMoneyControls periodically applies fees to newly-completed
+// charges/payouts, runs due settlement cycles and matured reserve
+// releases, and drives reconciliation — generating simulated statement
+// lines and matching them against the ledger, routing genuine
+// discrepancies to the break queue (docs/banking-backend-spec.md §4.1-§4.3).
+// It stops when ctx is cancelled.
+func runMoneyControls(ctx context.Context, feesSvc *fees.Service, settlementSvc *settlement.Service, reconciliationSvc *reconciliation.Service, logger *slog.Logger) {
+	feesTicker := time.NewTicker(5 * time.Second)
+	defer feesTicker.Stop()
+	reconciliationTicker := time.NewTicker(15 * time.Second)
+	defer reconciliationTicker.Stop()
+	settlementTicker := time.NewTicker(30 * time.Second)
+	defer settlementTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-feesTicker.C:
+			if err := feesSvc.ApplyFees(ctx); err != nil {
+				logger.ErrorContext(ctx, "fees: apply failed", slog.Any("error", err))
+			}
+		case <-reconciliationTicker.C:
+			if err := reconciliationSvc.GenerateStatementLines(ctx); err != nil {
+				logger.ErrorContext(ctx, "reconciliation: generate statement lines failed", slog.Any("error", err))
+			}
+			if err := reconciliationSvc.RunReconciliation(ctx); err != nil {
+				logger.ErrorContext(ctx, "reconciliation: run failed", slog.Any("error", err))
+			}
+		case <-settlementTicker.C:
+			if err := settlementSvc.RunCycles(ctx); err != nil {
+				logger.ErrorContext(ctx, "settlement: run cycles failed", slog.Any("error", err))
+			}
+			if err := settlementSvc.ReleaseMaturedReserves(ctx); err != nil {
+				logger.ErrorContext(ctx, "settlement: release matured reserves failed", slog.Any("error", err))
 			}
 		}
 	}

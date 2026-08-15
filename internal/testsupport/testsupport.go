@@ -60,12 +60,30 @@ func RequireTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// migrationLockKey is an arbitrary fixed key for a Postgres session-level
+// advisory lock. `go test ./...` runs each package as its own OS process,
+// so the in-process `once` above only serializes within a package — every
+// package still races to run goose.Up against the same fresh database at
+// once. Concurrent CREATE TABLE/CREATE TYPE from two racing goose runs can
+// hit Postgres catalog unique-constraint errors, so the migration step
+// itself is additionally serialized across processes with this lock.
+const migrationLockKey = 8825172
+
 func runMigrations(dsn string) error {
 	sqlDB, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return err
 	}
 	defer sqlDB.Close()
+	// Advisory locks are session-scoped: pinning this *sql.DB to exactly
+	// one physical connection guarantees the lock/unlock below and the
+	// goose.Up in between all run on the same Postgres session.
+	sqlDB.SetMaxOpenConns(1)
+
+	if _, err := sqlDB.Exec(`SELECT pg_advisory_lock($1)`, migrationLockKey); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer func() { _, _ = sqlDB.Exec(`SELECT pg_advisory_unlock($1)`, migrationLockKey) }()
 
 	if err := goose.SetDialect("postgres"); err != nil {
 		return err

@@ -56,12 +56,29 @@ func requireTestPool(t *testing.T) *pgxpool.Pool {
 	return testPool
 }
 
+// migrationLockKey serializes migration runs across the separate OS
+// processes `go test ./...` spawns per package (matches
+// internal/testsupport's own copy of this fix — see its comment): without
+// it, concurrent goose.Up runs against a fresh database race on
+// CREATE TABLE/CREATE TYPE and hit Postgres catalog unique-constraint
+// errors.
+const migrationLockKey = 8825172
+
 func runMigrations(dsn string) error {
 	sqlDB, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return err
 	}
 	defer sqlDB.Close()
+	// Advisory locks are session-scoped: pinning this *sql.DB to exactly
+	// one physical connection guarantees the lock/unlock and the goose.Up
+	// in between all run on the same Postgres session.
+	sqlDB.SetMaxOpenConns(1)
+
+	if _, err := sqlDB.Exec(`SELECT pg_advisory_lock($1)`, migrationLockKey); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer func() { _, _ = sqlDB.Exec(`SELECT pg_advisory_unlock($1)`, migrationLockKey) }()
 
 	if err := goose.SetDialect("postgres"); err != nil {
 		return err
