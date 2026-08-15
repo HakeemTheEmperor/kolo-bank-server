@@ -22,6 +22,7 @@ func NewRegistry() *Registry {
 			"wire":    NewSimulatedRail("wire", 1200*time.Millisecond),
 			"local":   NewSimulatedRail("local", 400*time.Millisecond),
 			"billpay": NewSimulatedRail("billpay", 300*time.Millisecond),
+			"card":    NewSimulatedRail("card", 250*time.Millisecond),
 		},
 	}
 }

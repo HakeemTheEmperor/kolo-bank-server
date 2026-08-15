@@ -11,7 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
+	"github.com/toluwalase/kolo-bank-server/internal/auth"
 	"github.com/toluwalase/kolo-bank-server/internal/bills"
+	"github.com/toluwalase/kolo-bank-server/internal/charges"
+	"github.com/toluwalase/kolo-bank-server/internal/checkout"
 	"github.com/toluwalase/kolo-bank-server/internal/config"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/httpserver"
@@ -19,9 +23,14 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/observability"
 	"github.com/toluwalase/kolo-bank-server/internal/payments"
+	"github.com/toluwalase/kolo-bank-server/internal/payouts"
 	"github.com/toluwalase/kolo-bank-server/internal/postgres"
+	"github.com/toluwalase/kolo-bank-server/internal/publicapi"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
 	"github.com/toluwalase/kolo-bank-server/internal/scheduler"
+	"github.com/toluwalase/kolo-bank-server/internal/secrets"
+	"github.com/toluwalase/kolo-bank-server/internal/tokens"
+	"github.com/toluwalase/kolo-bank-server/internal/webhooks"
 )
 
 func main() {
@@ -70,10 +79,32 @@ func run() error {
 	externalSvc := externalpayments.NewService(db.Pool, ledgerSvc, railRegistry, logger)
 	billsSvc := bills.NewService(db.Pool, externalSvc)
 
+	keyProvider := secrets.NewLocalKeyProvider()
+	authSvc := auth.NewService(db.Pool, identitySvc, keyProvider)
+	apiKeysSvc := apikeys.NewService(db.Pool)
+	tokensSvc := tokens.NewService(db.Pool)
+	chargesSvc := charges.NewService(db.Pool, tokensSvc, externalSvc)
+	payoutsSvc := payouts.NewService(db.Pool, externalSvc, railRegistry)
+	checkoutSvc := checkout.NewService(db.Pool)
+	webhooksSvc := webhooks.NewService(db.Pool, keyProvider)
+
 	go runScheduler(ctx, schedulerSvc, billsSvc, logger)
 	go runExternalPayments(ctx, externalSvc, logger)
+	go runWebhooks(ctx, webhooksSvc, logger)
 
-	handler := httpserver.New(logger, db)
+	apiHandler := publicapi.New(publicapi.Deps{
+		ApiKeys:       apiKeysSvc,
+		Auth:          authSvc,
+		Identity:      identitySvc,
+		Tokens:        tokensSvc,
+		Charges:       chargesSvc,
+		Payouts:       payoutsSvc,
+		Checkout:      checkoutSvc,
+		Webhooks:      webhooksSvc,
+		Logger:        logger,
+		PublicBaseURL: cfg.PublicBaseURL,
+	})
+	handler := httpserver.New(logger, db, apiHandler)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
@@ -160,6 +191,31 @@ func runExternalPayments(ctx context.Context, svc *externalpayments.Service, log
 		case <-stuckTicker.C:
 			if err := svc.ResolveStuck(ctx); err != nil {
 				logger.ErrorContext(ctx, "externalpayments: resolve stuck failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// runWebhooks periodically enqueues webhook events for newly-terminal
+// charges/payouts and delivers due (including backed-off retry) deliveries
+// (docs/banking-backend-spec.md §3.6). It stops when ctx is cancelled.
+func runWebhooks(ctx context.Context, svc *webhooks.Service, logger *slog.Logger) {
+	notifyTicker := time.NewTicker(3 * time.Second)
+	defer notifyTicker.Stop()
+	deliverTicker := time.NewTicker(5 * time.Second)
+	defer deliverTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-notifyTicker.C:
+			if err := svc.NotifyTerminal(ctx); err != nil {
+				logger.ErrorContext(ctx, "webhooks: notify terminal failed", slog.Any("error", err))
+			}
+		case <-deliverTicker.C:
+			if err := svc.DeliverPending(ctx); err != nil {
+				logger.ErrorContext(ctx, "webhooks: deliver pending failed", slog.Any("error", err))
 			}
 		}
 	}

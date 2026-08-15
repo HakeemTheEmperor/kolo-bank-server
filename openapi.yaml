@@ -1,0 +1,495 @@
+openapi: 3.0.3
+info:
+  title: Kolo Bank Integration API
+  version: "1.0.0"
+  description: |
+    Public REST API for collections and payouts (docs/banking-backend-spec.md §3.6).
+    This document is the source of truth for the API contract — a frontend client
+    generates its types and request bindings from this file rather than hand-written
+    duplicates (see the spec's Development Environment section on repo isolation).
+
+    ## Modes
+    Every API key is issued in `sandbox` or `live` mode. A key's mode is fixed at
+    creation and determines which resources it can see and create — sandbox keys
+    never touch live data and vice versa. There is no way to change a key's mode
+    after creation; issue a new key instead.
+
+    ## Idempotency
+    Every mutating endpoint (`POST`) requires an `Idempotency-Key` header. Retrying
+    the same request with the same key returns the original result rather than
+    creating a duplicate resource — safe to retry after a timeout or network error.
+
+    ## Errors
+    All error responses share the shape described by the `Error` schema:
+    `{"error": {"code": "...", "message": "..."}}`.
+servers:
+  - url: https://api.kolobank.example/v1
+    description: Production (illustrative — this is a mock bank)
+  - url: http://localhost:8080/v1
+    description: Local development
+
+security:
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: "kolo_test_... / kolo_live_..."
+      description: Integration API routes. Obtain a key via the merchant dashboard routes (SessionAuth).
+    SessionAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: session token
+      description: Merchant dashboard routes (API-key and webhook-endpoint management). Obtained via login (out of scope of this document — see internal/auth).
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found (or not owned by the authenticated merchant)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UnprocessableEntity:
+      description: Well-formed request that cannot be fulfilled (e.g. no settlement account)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Client-chosen key scoping this request to at-most-once effect, per merchant.
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ListLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required: [code, message]
+      required: [error]
+
+    Mode:
+      type: string
+      enum: [sandbox, live]
+
+    Money:
+      type: object
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+          description: Amount in minor units (e.g. kobo).
+        currency:
+          type: string
+          example: NGN
+
+    Token:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        masked_pan: { type: string, example: "**** **** **** 4242" }
+        card_brand: { type: string, example: visa }
+        created_at: { type: string, format: date-time }
+
+    CreateTokenRequest:
+      type: object
+      required: [card_number]
+      properties:
+        card_number:
+          type: string
+          description: >
+            Raw card number, tokenized immediately and never stored. Numbers ending
+            "0002" are a reserved test number that always declines when charged.
+
+    Charge:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, succeeded, failed] }
+        token_id: { type: string, format: uuid }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string }
+        created_at: { type: string, format: date-time }
+
+    CreateChargeRequest:
+      type: object
+      required: [token_id, amount_minor, currency]
+      properties:
+        token_id: { type: string, format: uuid }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string, example: NGN }
+
+    Payout:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, succeeded, failed] }
+        rail: { type: string, example: instant }
+        recipient_ref: { type: string }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string }
+        created_at: { type: string, format: date-time }
+
+    CreatePayoutRequest:
+      type: object
+      required: [rail, recipient_ref, amount_minor, currency]
+      properties:
+        rail:
+          type: string
+          enum: [instant, ach, wire, local]
+        recipient_ref: { type: string }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string, example: NGN }
+
+    CheckoutSession:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [open, completed, expired] }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string }
+        redirect_url:
+          type: string
+          description: Where a hosted frontend would render this session (not served by this API).
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+
+    CreateCheckoutSessionRequest:
+      type: object
+      required: [amount_minor, currency, success_url, cancel_url]
+      properties:
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string, example: NGN }
+        success_url: { type: string, format: uri }
+        cancel_url: { type: string, format: uri }
+
+    ApiKey:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        mode: { $ref: "#/components/schemas/Mode" }
+        name: { type: string }
+        key_prefix: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        status: { type: string, enum: [active, revoked] }
+        created_at: { type: string, format: date-time }
+
+    CreateApiKeyResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiKey"
+        - type: object
+          properties:
+            key:
+              type: string
+              description: Raw API key — shown only in this response, never retrievable again.
+
+    CreateApiKeyRequest:
+      type: object
+      required: [mode, name]
+      properties:
+        mode: { $ref: "#/components/schemas/Mode" }
+        name: { type: string }
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [charges:write, charges:read, payouts:write, payouts:read, checkout:write]
+
+    WebhookEndpoint:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        mode: { $ref: "#/components/schemas/Mode" }
+        url: { type: string, format: uri }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    CreateWebhookEndpointResponse:
+      allOf:
+        - $ref: "#/components/schemas/WebhookEndpoint"
+        - type: object
+          properties:
+            secret:
+              type: string
+              description: HMAC signing secret — shown only in this response, never retrievable again.
+
+    CreateWebhookEndpointRequest:
+      type: object
+      required: [mode, url]
+      properties:
+        mode: { $ref: "#/components/schemas/Mode" }
+        url: { type: string, format: uri }
+
+    WebhookEventPayload:
+      type: object
+      description: >
+        The body POSTed to a webhook endpoint. Signed via HMAC-SHA256 of the raw
+        body using the endpoint's secret, hex-encoded in the X-Kolo-Signature
+        header as "sha256=<hex>". event_type also arrives as the X-Kolo-Event
+        header.
+      properties:
+        id: { type: string, format: uuid }
+        amount_minor: { type: integer, format: int64 }
+        currency: { type: string }
+        status: { type: string, enum: [succeeded, failed] }
+
+paths:
+  /tokens:
+    post:
+      summary: Tokenize a payment instrument
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTokenRequest" }
+      responses:
+        "201":
+          description: Token created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Token" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /charges:
+    post:
+      summary: Charge a tokenized payment instrument (a collection)
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateChargeRequest" }
+      responses:
+        "201":
+          description: Charge created (status starts pending)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Charge" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+    get:
+      summary: List charges (developer-facing transaction log)
+      parameters: [{ $ref: "#/components/parameters/ListLimit" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Charge" }
+
+  /charges/{id}:
+    get:
+      summary: Get a charge
+      parameters: [{ $ref: "#/components/parameters/ResourceId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Charge" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /payouts:
+    post:
+      summary: Initiate a payout
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePayoutRequest" }
+      responses:
+        "201":
+          description: Payout created (status starts pending)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+    get:
+      summary: List payouts (developer-facing transaction log)
+      parameters: [{ $ref: "#/components/parameters/ListLimit" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Payout" }
+
+  /payouts/{id}:
+    get:
+      summary: Get a payout
+      parameters: [{ $ref: "#/components/parameters/ResourceId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payout" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /checkout-sessions:
+    post:
+      summary: Create a hosted checkout session
+      description: >
+        Returns a redirect_url a real hosted frontend would render — this API
+        does not serve a checkout page itself.
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCheckoutSessionRequest" }
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutSession" }
+
+  /checkout-sessions/{id}:
+    get:
+      summary: Get a checkout session
+      parameters: [{ $ref: "#/components/parameters/ResourceId" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutSession" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /dashboard/api-keys:
+    post:
+      summary: Issue a new API key
+      security: [{ SessionAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateApiKeyRequest" }
+      responses:
+        "201":
+          description: Key created — the raw key is only ever shown here
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateApiKeyResponse" }
+    get:
+      summary: List this merchant's API keys
+      security: [{ SessionAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ApiKey" }
+
+  /dashboard/api-keys/{id}/rotate:
+    post:
+      summary: Rotate an API key (issues a new one, revokes the old)
+      security: [{ SessionAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/ResourceId" }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200":
+          description: Rotated — the new raw key is only ever shown here
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateApiKeyResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /dashboard/api-keys/{id}:
+    delete:
+      summary: Revoke an API key
+      security: [{ SessionAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/ResourceId" }]
+      responses:
+        "204": { description: Revoked }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /dashboard/webhook-endpoints:
+    post:
+      summary: Register a webhook endpoint
+      security: [{ SessionAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateWebhookEndpointRequest" }
+      responses:
+        "201":
+          description: Endpoint created — the signing secret is only ever shown here
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateWebhookEndpointResponse" }
+    get:
+      summary: List this merchant's webhook endpoints
+      security: [{ SessionAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WebhookEndpoint" }
+
+  /dashboard/webhook-endpoints/{id}:
+    delete:
+      summary: Deactivate a webhook endpoint
+      security: [{ SessionAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/ResourceId" }]
+      responses:
+        "204": { description: Deactivated }
+        "404": { $ref: "#/components/responses/NotFound" }

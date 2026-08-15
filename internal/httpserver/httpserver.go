@@ -21,12 +21,18 @@ type Pinger interface {
 }
 
 // New builds the top-level HTTP handler. db is used for the readiness check;
-// it may be nil if no dependency needs checking yet.
-func New(logger *slog.Logger, db Pinger) http.Handler {
+// it may be nil if no dependency needs checking yet. apiHandler (may be
+// nil) is mounted at /v1/ — the public integration API
+// (internal/publicapi) — so every route shares this same logging/tracing
+// middleware rather than each package building its own.
+func New(logger *slog.Logger, db Pinger, apiHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", handleReadyz(db))
+	if apiHandler != nil {
+		mux.Handle("/v1/", apiHandler)
+	}
 
 	return withMiddleware(mux, logger)
 }

@@ -18,6 +18,9 @@ type Config struct {
 	OTLPEndpoint string
 	// ShutdownTimeout bounds how long graceful shutdown waits for in-flight requests.
 	ShutdownTimeout time.Duration
+	// PublicBaseURL is used to build fully-qualified URLs returned to API
+	// clients, e.g. checkout.Session.RedirectURL.
+	PublicBaseURL string
 }
 
 // Load reads configuration from the environment. It fails fast on missing
@@ -29,6 +32,7 @@ func Load() (Config, error) {
 		LogLevel:        getEnv("LOG_LEVEL", "info"),
 		OTLPEndpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		ShutdownTimeout: 10 * time.Second,
+		PublicBaseURL:   getEnv("PUBLIC_BASE_URL", "http://localhost:8080"),
 	}
 
 	if cfg.DatabaseURL == "" {
