@@ -8,11 +8,13 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
+	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/fees"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payouts"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 	"github.com/toluwalase/kolo-bank-server/internal/tokens"
 )
@@ -47,7 +49,7 @@ func TestApplyFeesToCompletedChargePostsExactlyOnce(t *testing.T) {
 
 	ledgerSvc := ledger.NewService(pool)
 	tokensSvc := tokens.NewService(pool)
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	chargesSvc := charges.NewService(pool, tokensSvc, externalSvc)
 	feesSvc := fees.NewService(pool, ledgerSvc, nil)
 
@@ -112,7 +114,7 @@ func TestApplyFeesToCompletedPayout(t *testing.T) {
 
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	payoutsSvc := payouts.NewService(pool, externalSvc, registry)
 	feesSvc := fees.NewService(pool, ledgerSvc, nil)
 

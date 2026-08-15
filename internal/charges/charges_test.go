@@ -9,9 +9,11 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
+	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 	"github.com/toluwalase/kolo-bank-server/internal/tokens"
 )
@@ -46,7 +48,7 @@ func newMerchantWithAccount(t *testing.T, pool *pgxpool.Pool, ledgerSvc *ledger.
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *tokens.Service, *externalpayments.Service, *charges.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	tokensSvc := tokens.NewService(pool)
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	return ledgerSvc, tokensSvc, externalSvc, charges.NewService(pool, tokensSvc, externalSvc)
 }
 

@@ -7,9 +7,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
 
@@ -50,7 +52,7 @@ func newFundedAccount(t *testing.T, pool *pgxpool.Pool, ledgerSvc *ledger.Servic
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *externalpayments.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	return ledgerSvc, externalpayments.NewService(pool, ledgerSvc, registry, nil)
+	return ledgerSvc, externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 }
 
 func TestOutboundSucceeds(t *testing.T) {
@@ -252,6 +254,61 @@ func TestOutboundTimeoutIsResolvedByResolveStuck(t *testing.T) {
 	}
 	if bal.Pending.Minor != 0 || bal.Available.Minor != 95_000_00 {
 		t.Fatalf("post-resolve balance: pending=%d available=%d, want 0/9500000 (posted exactly once)", bal.Pending.Minor, bal.Available.Minor)
+	}
+}
+
+func TestHeldTransferIsNotClaimedUntilReleased(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ledgerSvc := ledger.NewService(pool)
+	registry := rails.NewRegistry()
+	riskSvc := risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil)
+	svc := externalpayments.NewService(pool, ledgerSvc, registry, riskSvc, nil)
+	ctx := context.Background()
+
+	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_000_00)
+
+	// A single transfer at/above risk's large-amount threshold is held for
+	// review rather than finalized (docs/banking-backend-spec.md §3.8).
+	et, err := svc.SendOutbound(ctx, acc, "instant", "acct-999", mustMoney(t, 10_000_000_00), testsupport.RandomKey())
+	if err != nil {
+		t.Fatalf("send outbound: %v", err)
+	}
+
+	if err := svc.ProcessPending(ctx); err != nil {
+		t.Fatalf("process pending: %v", err)
+	}
+
+	var status, riskStatus string
+	if err := pool.QueryRow(ctx, `SELECT status, risk_status FROM external_transfers WHERE id = $1`, et.ID).Scan(&status, &riskStatus); err != nil {
+		t.Fatalf("query status: %v", err)
+	}
+	if status != string(externalpayments.StatusPending) || riskStatus != "held" {
+		t.Fatalf("status=%s risk_status=%s, want pending/held", status, riskStatus)
+	}
+
+	// A second tick must not claim it either.
+	if err := svc.ProcessPending(ctx); err != nil {
+		t.Fatalf("process pending (second tick): %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM external_transfers WHERE id = $1`, et.ID).Scan(&status); err != nil {
+		t.Fatalf("query status: %v", err)
+	}
+	if status != string(externalpayments.StatusPending) {
+		t.Fatalf("status after second tick = %s, want still pending (held transfer must stay untouched)", status)
+	}
+
+	if err := riskSvc.Approve(ctx, et.ID); err != nil {
+		t.Fatalf("release hold: %v", err)
+	}
+
+	if err := svc.ProcessPending(ctx); err != nil {
+		t.Fatalf("process pending (after release): %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM external_transfers WHERE id = $1`, et.ID).Scan(&status); err != nil {
+		t.Fatalf("query status: %v", err)
+	}
+	if status != string(externalpayments.StatusCompleted) {
+		t.Fatalf("status after release = %s, want completed", status)
 	}
 }
 

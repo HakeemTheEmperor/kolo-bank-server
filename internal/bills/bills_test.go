@@ -9,9 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/toluwalase/kolo-bank-server/internal/bills"
+	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
 
@@ -60,7 +62,7 @@ func airtimeBillerID(t *testing.T, pool *pgxpool.Pool) string {
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *externalpayments.Service, *bills.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	return ledgerSvc, externalSvc, bills.NewService(pool, externalSvc)
 }
 

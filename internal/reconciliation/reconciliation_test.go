@@ -6,9 +6,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/reconciliation"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
@@ -50,7 +52,7 @@ func TestCompletedTransferAutoMatches(t *testing.T) {
 	pool := testsupport.RequireTestPool(t)
 	ctx := context.Background()
 	ledgerSvc := ledger.NewService(pool)
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	reconSvc := reconciliation.NewService(pool, nil)
 
 	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_00)
@@ -90,7 +92,7 @@ func TestPendingTransferIsBenignTimingNotABreak(t *testing.T) {
 	pool := testsupport.RequireTestPool(t)
 	ctx := context.Background()
 	ledgerSvc := ledger.NewService(pool)
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	reconSvc := reconciliation.NewService(pool, nil)
 
 	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_00)
@@ -130,7 +132,7 @@ func TestSeededDiscrepancyProducesBreak(t *testing.T) {
 	pool := testsupport.RequireTestPool(t)
 	ctx := context.Background()
 	ledgerSvc := ledger.NewService(pool)
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	reconSvc := reconciliation.NewService(pool, nil)
 
 	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_00)

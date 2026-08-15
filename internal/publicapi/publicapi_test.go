@@ -14,12 +14,14 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/auth"
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
+	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payouts"
 	"github.com/toluwalase/kolo-bank-server/internal/publicapi"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/secrets"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 	"github.com/toluwalase/kolo-bank-server/internal/tokens"
@@ -42,7 +44,7 @@ func newTestEnv(t *testing.T) testEnv {
 	identitySvc := identity.NewService(pool)
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	kp := secrets.NewLocalKeyProvider()
 
 	deps := publicapi.Deps{

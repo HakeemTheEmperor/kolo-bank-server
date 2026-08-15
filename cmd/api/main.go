@@ -16,6 +16,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/bills"
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
+	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/config"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/fees"
@@ -29,6 +30,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/publicapi"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
 	"github.com/toluwalase/kolo-bank-server/internal/reconciliation"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/scheduler"
 	"github.com/toluwalase/kolo-bank-server/internal/secrets"
 	"github.com/toluwalase/kolo-bank-server/internal/settlement"
@@ -78,8 +80,10 @@ func run() error {
 	paymentsSvc := payments.NewService(db.Pool, ledgerSvc, identitySvc)
 	schedulerSvc := scheduler.NewService(db.Pool, paymentsSvc, logger)
 
+	riskSvc := risk.NewService(db.Pool, ledgerSvc, compliance.NewStubScreener(), logger)
+
 	railRegistry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(db.Pool, ledgerSvc, railRegistry, logger)
+	externalSvc := externalpayments.NewService(db.Pool, ledgerSvc, railRegistry, riskSvc, logger)
 	billsSvc := bills.NewService(db.Pool, externalSvc)
 
 	keyProvider := secrets.NewLocalKeyProvider()
@@ -99,6 +103,7 @@ func run() error {
 	go runExternalPayments(ctx, externalSvc, logger)
 	go runWebhooks(ctx, webhooksSvc, logger)
 	go runMoneyControls(ctx, feesSvc, settlementSvc, reconciliationSvc, logger)
+	go runComplianceReports(ctx, riskSvc, logger)
 
 	apiHandler := publicapi.New(publicapi.Deps{
 		ApiKeys:       apiKeysSvc,
@@ -264,6 +269,32 @@ func runMoneyControls(ctx context.Context, feesSvc *fees.Service, settlementSvc 
 			}
 			if err := settlementSvc.ReleaseMaturedReserves(ctx); err != nil {
 				logger.ErrorContext(ctx, "settlement: release matured reserves failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// runComplianceReports periodically generates SAR/CTR-equivalent
+// regulatory export jobs for a trailing day window (§3.8: "AML transaction
+// reporting ... and regulatory reporting exports"). The interval is
+// demo-scale, matching the other money-controls tickers above — the exit
+// criterion is that reports generate, not real reporting-period semantics.
+func runComplianceReports(ctx context.Context, riskSvc *risk.Service, logger *slog.Logger) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			periodEnd := time.Now()
+			periodStart := periodEnd.Add(-24 * time.Hour)
+			if _, err := riskSvc.GenerateSARReport(ctx, periodStart, periodEnd); err != nil {
+				logger.ErrorContext(ctx, "risk: generate SAR report failed", slog.Any("error", err))
+			}
+			if _, err := riskSvc.GenerateCTRReport(ctx, periodStart, periodEnd); err != nil {
+				logger.ErrorContext(ctx, "risk: generate CTR report failed", slog.Any("error", err))
 			}
 		}
 	}

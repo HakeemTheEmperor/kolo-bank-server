@@ -7,6 +7,7 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 )
 
 type claimedRow struct {
@@ -33,7 +34,7 @@ const claimBatchSize = 20
 func (s *Service) ProcessPending(ctx context.Context) error {
 	rows, err := s.claim(ctx, `
 		WITH claimed AS (
-			SELECT id FROM external_transfers WHERE status = 'pending' ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED
+			SELECT id FROM external_transfers WHERE status = 'pending' AND risk_status = 'clear' ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED
 		)
 		UPDATE external_transfers SET status = 'processing', attempted_at = now()
 		WHERE id IN (SELECT id FROM claimed)
@@ -44,8 +45,8 @@ func (s *Service) ProcessPending(ctx context.Context) error {
 	}
 
 	for _, row := range rows {
-		if err := s.finalize(ctx, row); err != nil {
-			s.logger.ErrorContext(ctx, "externalpayments: finalize failed", slog.String("id", row.ID), slog.Any("error", err))
+		if err := s.processRow(ctx, row); err != nil {
+			s.logger.ErrorContext(ctx, "externalpayments: process row failed", slog.String("id", row.ID), slog.Any("error", err))
 		}
 	}
 	return nil
@@ -75,11 +76,53 @@ func (s *Service) ResolveStuck(ctx context.Context) error {
 
 	for _, row := range rows {
 		s.logger.WarnContext(ctx, "externalpayments: resolving stuck transfer", slog.String("id", row.ID))
-		if err := s.finalize(ctx, row); err != nil {
+		if err := s.processRow(ctx, row); err != nil {
 			s.logger.ErrorContext(ctx, "externalpayments: resolve stuck failed", slog.String("id", row.ID), slog.Any("error", err))
 		}
 	}
 	return nil
+}
+
+// processRow assesses row for risk before finalizing it — the real-time
+// hold/block gate (docs/banking-backend-spec.md §3.8, Phase 7). A held
+// transfer is reverted to 'pending' (invisible to both ProcessPending's
+// claim, via risk_status, and ResolveStuck's, via status) until an
+// investigator calls risk.Service.Approve or Block; a blocked transfer
+// has already been marked 'failed' by Assess itself, mirroring the
+// rail-failure path below.
+//
+// A row can be reclaimed here with risk_status already 'clear' after an
+// investigator releases a hold — Assess itself is idempotent and would
+// just return that same stale hold decision, so Assessed distinguishes
+// "never scored" (score it) from "already scored, then cleared" (go
+// straight to finalize).
+func (s *Service) processRow(ctx context.Context, row claimedRow) error {
+	assessed, err := s.riskSvc.Assessed(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("check risk assessment: %w", err)
+	}
+	if assessed {
+		return s.finalize(ctx, row)
+	}
+
+	assessment, err := s.riskSvc.Assess(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("risk assessment: %w", err)
+	}
+
+	switch assessment.Decision {
+	case risk.DecisionAllow:
+		return s.finalize(ctx, row)
+	case risk.DecisionHold:
+		s.logger.WarnContext(ctx, "externalpayments: transfer held by risk assessment", slog.String("id", row.ID))
+		if _, err := s.pool.Exec(ctx, `UPDATE external_transfers SET status = 'pending' WHERE id = $1`, row.ID); err != nil {
+			return fmt.Errorf("revert held transfer to pending: %w", err)
+		}
+		return nil
+	default: // risk.DecisionBlock
+		s.logger.WarnContext(ctx, "externalpayments: transfer blocked by risk assessment", slog.String("id", row.ID))
+		return nil
+	}
 }
 
 func (s *Service) claim(ctx context.Context, query string, args ...any) ([]claimedRow, error) {

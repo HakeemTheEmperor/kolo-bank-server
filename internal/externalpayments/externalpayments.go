@@ -23,6 +23,7 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 )
 
 type Status string
@@ -66,14 +67,18 @@ type Service struct {
 	pool      *pgxpool.Pool
 	ledgerSvc *ledger.Service
 	registry  *rails.Registry
+	riskSvc   *risk.Service
 	logger    *slog.Logger
 }
 
-func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, registry *rails.Registry, logger *slog.Logger) *Service {
+// riskSvc gates real-time hold/block (docs/banking-backend-spec.md §3.8,
+// Phase 7): ProcessPending assesses each claimed row through it before
+// finalize, the same choke point both charges and payouts already share.
+func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, registry *rails.Registry, riskSvc *risk.Service, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{pool: pool, ledgerSvc: ledgerSvc, registry: registry, logger: logger}
+	return &Service{pool: pool, ledgerSvc: ledgerSvc, registry: registry, riskSvc: riskSvc, logger: logger}
 }
 
 // SendOutbound reserves amount via a hold and queues it for processing by

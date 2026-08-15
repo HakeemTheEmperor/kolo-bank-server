@@ -8,10 +8,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
+	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payouts"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
 
@@ -51,7 +53,7 @@ func newMerchantWithFundedAccount(t *testing.T, pool *pgxpool.Pool, ledgerSvc *l
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *externalpayments.Service, *payouts.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, nil)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	return ledgerSvc, externalSvc, payouts.NewService(pool, externalSvc, registry)
 }
 
