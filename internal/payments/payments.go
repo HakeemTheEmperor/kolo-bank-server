@@ -93,6 +93,14 @@ func (s *Service) Reverse(ctx context.Context, transactionID, idempotencyKey str
 	return s.ledgerSvc.ReverseTransaction(ctx, transactionID, idempotencyKey)
 }
 
+// CheckLimits exposes the sending identity's KYC-tier limit check for
+// callers that need to enforce it without going through Transfer itself —
+// internal/coolingoff, whose high-risk path defers the actual ledger
+// movement, still enforces the same limits at hold-placement time.
+func (s *Service) CheckLimits(ctx context.Context, fromAccountID string, amountMinor int64) error {
+	return s.checkLimits(ctx, fromAccountID, amountMinor)
+}
+
 func (s *Service) checkLimits(ctx context.Context, fromAccountID string, amountMinor int64) error {
 	var (
 		ownerID string

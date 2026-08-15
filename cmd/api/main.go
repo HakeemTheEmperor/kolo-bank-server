@@ -18,10 +18,14 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
 	"github.com/toluwalase/kolo-bank-server/internal/compliance"
 	"github.com/toluwalase/kolo-bank-server/internal/config"
+	"github.com/toluwalase/kolo-bank-server/internal/consent"
+	"github.com/toluwalase/kolo-bank-server/internal/coolingoff"
+	"github.com/toluwalase/kolo-bank-server/internal/disputes"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/fees"
 	"github.com/toluwalase/kolo-bank-server/internal/httpserver"
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
+	"github.com/toluwalase/kolo-bank-server/internal/kyc"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/observability"
 	"github.com/toluwalase/kolo-bank-server/internal/payments"
@@ -30,6 +34,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/publicapi"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
 	"github.com/toluwalase/kolo-bank-server/internal/reconciliation"
+	"github.com/toluwalase/kolo-bank-server/internal/recovery"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/scheduler"
 	"github.com/toluwalase/kolo-bank-server/internal/secrets"
@@ -99,11 +104,17 @@ func run() error {
 	settlementSvc := settlement.NewService(db.Pool, payoutsSvc, logger)
 	reconciliationSvc := reconciliation.NewService(db.Pool, logger)
 
+	coolingOffSvc := coolingoff.NewService(db.Pool, ledgerSvc, paymentsSvc, identitySvc, logger)
+	consentSvc := consent.NewService(db.Pool)
+	disputesSvc := disputes.NewService(db.Pool, logger)
+	recoverySvc := recovery.NewService(db.Pool, identitySvc, authSvc, kyc.NewStubProvider())
+
 	go runScheduler(ctx, schedulerSvc, billsSvc, logger)
 	go runExternalPayments(ctx, externalSvc, logger)
 	go runWebhooks(ctx, webhooksSvc, logger)
 	go runMoneyControls(ctx, feesSvc, settlementSvc, reconciliationSvc, logger)
 	go runComplianceReports(ctx, riskSvc, logger)
+	go runSafeguards(ctx, coolingOffSvc, logger)
 
 	apiHandler := publicapi.New(publicapi.Deps{
 		ApiKeys:       apiKeysSvc,
@@ -114,6 +125,11 @@ func run() error {
 		Payouts:       payoutsSvc,
 		Checkout:      checkoutSvc,
 		Webhooks:      webhooksSvc,
+		CoolingOff:    coolingOffSvc,
+		Consent:       consentSvc,
+		Disputes:      disputesSvc,
+		Recovery:      recoverySvc,
+		Pool:          db.Pool,
 		Logger:        logger,
 		PublicBaseURL: cfg.PublicBaseURL,
 	})
@@ -295,6 +311,25 @@ func runComplianceReports(ctx context.Context, riskSvc *risk.Service, logger *sl
 			}
 			if _, err := riskSvc.GenerateCTRReport(ctx, periodStart, periodEnd); err != nil {
 				logger.ErrorContext(ctx, "risk: generate CTR report failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// runSafeguards releases cooling-off transfers past their window into
+// real transfers, unless the sender cancelled first
+// (docs/banking-backend-spec.md §5.2). It stops when ctx is cancelled.
+func runSafeguards(ctx context.Context, coolingOffSvc *coolingoff.Service, logger *slog.Logger) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := coolingOffSvc.ReleaseMatured(ctx); err != nil {
+				logger.ErrorContext(ctx, "coolingoff: release matured failed", slog.Any("error", err))
 			}
 		}
 	}

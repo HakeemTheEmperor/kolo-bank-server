@@ -2,6 +2,7 @@ package publicapi
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -36,6 +37,26 @@ func (rl *rateLimiter) allow(keyID string) bool {
 		rl.limiters[keyID] = lim
 	}
 	return lim.Allow()
+}
+
+// ipRateLimit bounds abuse on public, unauthenticated routes (account
+// recovery, docs/banking-backend-spec.md §5.5) — there's no API key or
+// session to key the existing rateLimiter off of before the caller has
+// proven anything, so this keys off remote address instead.
+func ipRateLimit(limiter *rateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				host = r.RemoteAddr
+			}
+			if !limiter.allow(host) {
+				writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func bearerToken(r *http.Request) (string, bool) {

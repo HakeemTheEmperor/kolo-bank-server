@@ -15,12 +15,18 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
 	"github.com/toluwalase/kolo-bank-server/internal/compliance"
+	"github.com/toluwalase/kolo-bank-server/internal/consent"
+	"github.com/toluwalase/kolo-bank-server/internal/coolingoff"
+	"github.com/toluwalase/kolo-bank-server/internal/disputes"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
+	"github.com/toluwalase/kolo-bank-server/internal/kyc"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
+	"github.com/toluwalase/kolo-bank-server/internal/payments"
 	"github.com/toluwalase/kolo-bank-server/internal/payouts"
 	"github.com/toluwalase/kolo-bank-server/internal/publicapi"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/recovery"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/secrets"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
@@ -46,16 +52,23 @@ func newTestEnv(t *testing.T) testEnv {
 	registry := rails.NewRegistry()
 	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
 	kp := secrets.NewLocalKeyProvider()
+	authSvc := auth.NewService(pool, identitySvc, kp)
+	paymentsSvc := payments.NewService(pool, ledgerSvc, identitySvc)
 
 	deps := publicapi.Deps{
 		ApiKeys:       apikeys.NewService(pool),
-		Auth:          auth.NewService(pool, identitySvc, kp),
+		Auth:          authSvc,
 		Identity:      identitySvc,
 		Tokens:        tokens.NewService(pool),
 		Charges:       charges.NewService(pool, tokens.NewService(pool), externalSvc),
 		Payouts:       payouts.NewService(pool, externalSvc, registry),
 		Checkout:      checkout.NewService(pool),
 		Webhooks:      webhooks.NewService(pool, kp),
+		CoolingOff:    coolingoff.NewService(pool, ledgerSvc, paymentsSvc, identitySvc, nil),
+		Consent:       consent.NewService(pool),
+		Disputes:      disputes.NewService(pool, nil),
+		Recovery:      recovery.NewService(pool, identitySvc, authSvc, kyc.NewStubProvider()),
+		Pool:          pool,
 		PublicBaseURL: "https://api.kolobank.example",
 	}
 

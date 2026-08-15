@@ -4,12 +4,18 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
 	"github.com/toluwalase/kolo-bank-server/internal/auth"
 	"github.com/toluwalase/kolo-bank-server/internal/charges"
 	"github.com/toluwalase/kolo-bank-server/internal/checkout"
+	"github.com/toluwalase/kolo-bank-server/internal/consent"
+	"github.com/toluwalase/kolo-bank-server/internal/coolingoff"
+	"github.com/toluwalase/kolo-bank-server/internal/disputes"
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/payouts"
+	"github.com/toluwalase/kolo-bank-server/internal/recovery"
 	"github.com/toluwalase/kolo-bank-server/internal/tokens"
 	"github.com/toluwalase/kolo-bank-server/internal/webhooks"
 )
@@ -33,6 +39,11 @@ type Deps struct {
 	Payouts       *payouts.Service
 	Checkout      *checkout.Service
 	Webhooks      *webhooks.Service
+	CoolingOff    *coolingoff.Service
+	Consent       *consent.Service
+	Disputes      *disputes.Service
+	Recovery      *recovery.Service
+	Pool          *pgxpool.Pool
 	Logger        *slog.Logger
 	PublicBaseURL string
 }
@@ -79,6 +90,27 @@ func New(deps Deps) http.Handler {
 	mux.Handle("POST /v1/dashboard/webhook-endpoints", chain(withSessionAuth, requireIdempotencyKey)(http.HandlerFunc(a.createWebhookEndpoint)))
 	mux.Handle("GET /v1/dashboard/webhook-endpoints", withSessionAuth(http.HandlerFunc(a.listWebhookEndpoints)))
 	mux.Handle("DELETE /v1/dashboard/webhook-endpoints/{id}", withSessionAuth(http.HandlerFunc(a.deactivateWebhookEndpoint)))
+
+	// Customer safeguards (docs/banking-backend-spec.md §5) — session
+	// authenticated via the same sessionAuth any identity (not just
+	// merchants) logs into.
+	mux.Handle("POST /v1/me/transfers", chain(withSessionAuth, requireIdempotencyKey)(http.HandlerFunc(a.createTransfer)))
+	mux.Handle("GET /v1/me/transfers/pending", withSessionAuth(http.HandlerFunc(a.listPendingTransfers)))
+	mux.Handle("POST /v1/me/transfers/{id}/cancel", withSessionAuth(http.HandlerFunc(a.cancelTransfer)))
+
+	mux.Handle("POST /v1/me/authorize/{merchantID}", withSessionAuth(http.HandlerFunc(a.grantAuthorization)))
+	mux.Handle("GET /v1/me/authorizations", withSessionAuth(http.HandlerFunc(a.listAuthorizations)))
+	mux.Handle("DELETE /v1/me/authorizations/{id}", withSessionAuth(http.HandlerFunc(a.revokeAuthorization)))
+
+	mux.Handle("POST /v1/me/disputes", withSessionAuth(http.HandlerFunc(a.createDispute)))
+	mux.Handle("GET /v1/me/disputes", withSessionAuth(http.HandlerFunc(a.listDisputes)))
+	mux.Handle("GET /v1/me/disputes/{id}", withSessionAuth(http.HandlerFunc(a.getDispute)))
+
+	// Account recovery — deliberately public; see recovery_handlers.go.
+	recoveryLimiter := newRateLimiter(0.5, 5)
+	withIPLimit := ipRateLimit(recoveryLimiter)
+	mux.Handle("POST /v1/recovery/initiate", withIPLimit(http.HandlerFunc(a.initiateRecovery)))
+	mux.Handle("POST /v1/recovery/{id}/complete", withIPLimit(http.HandlerFunc(a.completeRecovery)))
 
 	return mux
 }
