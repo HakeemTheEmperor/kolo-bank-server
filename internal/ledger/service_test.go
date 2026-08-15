@@ -9,9 +9,28 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 )
 
+// newTestOwner inserts a minimal identity row directly via SQL so accounts
+// have a real owner to satisfy the FK added in
+// db/migrations/00009_add_accounts_owner_fk.sql (Phase 2). It intentionally
+// doesn't go through internal/identity or internal/onboarding — ledger
+// tests only need an owner to exist, not a full onboarding flow.
+func newTestOwner(t *testing.T) string {
+	t.Helper()
+	var id string
+	err := testPool.QueryRow(context.Background(), `
+		INSERT INTO identities (kind, status, email, password_hash, legal_name)
+		VALUES ('individual', 'active', $1, 'unused', 'Test Owner')
+		RETURNING id::text
+	`, randomKey()+"@example.com").Scan(&id)
+	if err != nil {
+		t.Fatalf("insert test owner identity: %v", err)
+	}
+	return id
+}
+
 func newTestAccount(t *testing.T, svc *ledger.Service, overdraft int64) ledger.Account {
 	t.Helper()
-	acc, err := svc.OpenAccount(context.Background(), randomUUID(), ledger.AccountTypeWallet, "NGN", overdraft)
+	acc, err := svc.OpenAccount(context.Background(), newTestOwner(t), ledger.AccountTypeWallet, "NGN", overdraft)
 	if err != nil {
 		t.Fatalf("open account: %v", err)
 	}

@@ -13,6 +13,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.45.0
 	go.opentelemetry.io/otel/sdk/metric v1.45.0
 	go.opentelemetry.io/otel/trace v1.45.0
+	golang.org/x/crypto v0.54.0
 	pgregory.net/rapid v1.3.0
 )
 
