@@ -11,13 +11,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/toluwalase/kolo-bank-server/internal/bills"
 	"github.com/toluwalase/kolo-bank-server/internal/config"
+	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/httpserver"
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/observability"
 	"github.com/toluwalase/kolo-bank-server/internal/payments"
 	"github.com/toluwalase/kolo-bank-server/internal/postgres"
+	"github.com/toluwalase/kolo-bank-server/internal/rails"
 	"github.com/toluwalase/kolo-bank-server/internal/scheduler"
 )
 
@@ -62,7 +65,13 @@ func run() error {
 	ledgerSvc := ledger.NewService(db.Pool)
 	paymentsSvc := payments.NewService(db.Pool, ledgerSvc, identitySvc)
 	schedulerSvc := scheduler.NewService(db.Pool, paymentsSvc, logger)
-	go runScheduler(ctx, schedulerSvc, logger)
+
+	railRegistry := rails.NewRegistry()
+	externalSvc := externalpayments.NewService(db.Pool, ledgerSvc, railRegistry, logger)
+	billsSvc := bills.NewService(db.Pool, externalSvc)
+
+	go runScheduler(ctx, schedulerSvc, billsSvc, logger)
+	go runExternalPayments(ctx, externalSvc, logger)
 
 	handler := httpserver.New(logger, db)
 	server := &http.Server{
@@ -101,10 +110,11 @@ func run() error {
 	return nil
 }
 
-// runScheduler periodically executes due scheduled transfers and sweeps
-// any left stuck mid-execution (docs/banking-backend-spec.md §3.4, §4.4).
-// It stops when ctx is cancelled, e.g. on shutdown signal.
-func runScheduler(ctx context.Context, svc *scheduler.Service, logger *slog.Logger) {
+// runScheduler periodically executes due scheduled transfers and recurring
+// bill payments, and sweeps scheduled transfers left stuck mid-execution
+// (docs/banking-backend-spec.md §3.4, §3.7, §4.4). It stops when ctx is
+// cancelled, e.g. on shutdown signal.
+func runScheduler(ctx context.Context, schedulerSvc *scheduler.Service, billsSvc *bills.Service, logger *slog.Logger) {
 	dueTicker := time.NewTicker(10 * time.Second)
 	defer dueTicker.Stop()
 	stuckTicker := time.NewTicker(60 * time.Second)
@@ -115,12 +125,41 @@ func runScheduler(ctx context.Context, svc *scheduler.Service, logger *slog.Logg
 		case <-ctx.Done():
 			return
 		case <-dueTicker.C:
-			if err := svc.RunDue(ctx); err != nil {
+			if err := schedulerSvc.RunDue(ctx); err != nil {
 				logger.ErrorContext(ctx, "scheduler: run due failed", slog.Any("error", err))
+			}
+			if err := billsSvc.RunDueBills(ctx); err != nil {
+				logger.ErrorContext(ctx, "bills: run due failed", slog.Any("error", err))
+			}
+		case <-stuckTicker.C:
+			if err := schedulerSvc.ResolveStuck(ctx); err != nil {
+				logger.ErrorContext(ctx, "scheduler: resolve stuck failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+// runExternalPayments periodically drives pending external-rail transfers
+// (bill payments included, since they route through the same rail) and
+// sweeps any left stuck mid-flight — the in-flight resolver
+// (docs/banking-backend-spec.md §4.4). It stops when ctx is cancelled.
+func runExternalPayments(ctx context.Context, svc *externalpayments.Service, logger *slog.Logger) {
+	pendingTicker := time.NewTicker(3 * time.Second)
+	defer pendingTicker.Stop()
+	stuckTicker := time.NewTicker(60 * time.Second)
+	defer stuckTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-pendingTicker.C:
+			if err := svc.ProcessPending(ctx); err != nil {
+				logger.ErrorContext(ctx, "externalpayments: process pending failed", slog.Any("error", err))
 			}
 		case <-stuckTicker.C:
 			if err := svc.ResolveStuck(ctx); err != nil {
-				logger.ErrorContext(ctx, "scheduler: resolve stuck failed", slog.Any("error", err))
+				logger.ErrorContext(ctx, "externalpayments: resolve stuck failed", slog.Any("error", err))
 			}
 		}
 	}
