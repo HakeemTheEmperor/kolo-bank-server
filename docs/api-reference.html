@@ -1,0 +1,1918 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kolo API Reference</title>
+<meta name="description" content="Complete developer reference for the Kolo Bank API — authentication, idempotency, errors, every endpoint, and webhook signing.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%B7%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --paper: #f5f6f8;
+    --panel: #ffffff;
+    --panel-raised: #fbfbfc;
+    --ink: #12161d;
+    --ink-soft: #4b515c;
+    --ink-faint: #7a808c;
+    --border: #e1e4ea;
+    --border-soft: #ececf0;
+    --accent: #0b6e4f;
+    --accent-contrast: #ffffff;
+    --accent-soft: #e2f2ec;
+    --brass: #a8671f;
+    --brass-soft: #f7ecd8;
+    --blue: #34509e;
+    --blue-soft: #e6ebf7;
+    --danger: #b3261e;
+    --danger-soft: #fbe9e7;
+    --code-bg: #12161d;
+    --code-text: #e7e9ef;
+    --code-faint: #838ba0;
+    --code-border: #232935;
+    --sidebar-bg: #0e1218;
+    --sidebar-text: #9aa1ae;
+    --sidebar-text-active: #ffffff;
+    --sidebar-border: #1d222b;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --shadow: 0 1px 2px rgba(18,22,29,0.04), 0 8px 24px -12px rgba(18,22,29,0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0c0f14;
+      --panel: #12161d;
+      --panel-raised: #171c24;
+      --ink: #e8eaf0;
+      --ink-soft: #a7aebb;
+      --ink-faint: #747c8a;
+      --border: #262b36;
+      --border-soft: #1e222b;
+      --accent: #3fbd8f;
+      --accent-contrast: #06120d;
+      --accent-soft: #142a22;
+      --brass: #e0a94f;
+      --brass-soft: #2b2213;
+      --blue: #8aa6ee;
+      --blue-soft: #1a2236;
+      --danger: #ff7a70;
+      --danger-soft: #2c1715;
+      --code-bg: #08090c;
+      --code-text: #dee2ea;
+      --code-faint: #6f7788;
+      --code-border: #1c2029;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #0c0f14;
+    --panel: #12161d;
+    --panel-raised: #171c24;
+    --ink: #e8eaf0;
+    --ink-soft: #a7aebb;
+    --ink-faint: #747c8a;
+    --border: #262b36;
+    --border-soft: #1e222b;
+    --accent: #3fbd8f;
+    --accent-contrast: #06120d;
+    --accent-soft: #142a22;
+    --brass: #e0a94f;
+    --brass-soft: #2b2213;
+    --blue: #8aa6ee;
+    --blue-soft: #1a2236;
+    --danger: #ff7a70;
+    --danger-soft: #2c1715;
+    --code-bg: #08090c;
+    --code-text: #dee2ea;
+    --code-faint: #6f7788;
+    --code-border: #1c2029;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  h1, h2, h3, h4 { text-wrap: balance; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+  code, pre, kbd { font-family: var(--mono); }
+  p { max-width: 68ch; }
+  table { font-variant-numeric: tabular-nums; }
+
+  /* ---------- shell ---------- */
+  .shell { display: grid; grid-template-columns: 272px minmax(0,1fr); min-height: 100vh; }
+  #nav-toggle { display: none; }
+
+  .sidebar {
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--sidebar-border);
+    padding: 1.5rem 1.25rem 3rem;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1.75rem;
+    text-decoration: none;
+  }
+  .brand:hover { text-decoration: none; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: linear-gradient(155deg, #3fbd8f, #0b6e4f);
+    display: flex; align-items: center; justify-content: center;
+    color: #06120d; font-weight: 800; font-size: 14px;
+    flex-shrink: 0;
+  }
+  .brand-name { color: #fff; font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+  .brand-tag { display: block; color: var(--sidebar-text); font-size: 11px; font-family: var(--mono); letter-spacing: 0.02em; }
+
+  .nav-group { margin-bottom: 1.5rem; }
+  .nav-group-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #5c6472;
+    padding: 0 0.6rem;
+    margin-bottom: 0.4rem;
+    display: block;
+  }
+  .nav-group a {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    color: var(--sidebar-text);
+    font-size: 13.5px;
+    text-decoration: none;
+  }
+  .nav-group a:hover { background: #171c24; color: var(--sidebar-text-active); }
+  .nav-group a .m {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    width: 34px;
+    flex-shrink: 0;
+    text-align: center;
+    padding: 1px 0;
+    border-radius: 4px;
+    opacity: 0.85;
+  }
+  .m-get { background: rgba(63,189,143,0.16); color: #5fd3a8; }
+  .m-post { background: rgba(224,169,79,0.16); color: #ecc27f; }
+  .m-put { background: rgba(138,166,238,0.16); color: #a9bdf2; }
+  .m-delete { background: rgba(255,122,112,0.16); color: #ff9a91; }
+
+  main { min-width: 0; padding: 0 0 8rem; }
+
+  .topbar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1.25rem;
+    background: var(--sidebar-bg);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .topbar label {
+    color: #fff;
+    font-size: 13px;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    cursor: pointer;
+  }
+
+  .content-wrap { max-width: 1180px; margin: 0 auto; padding: 3.5rem 3rem; }
+
+  /* ---------- hero / intro ---------- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 0.6rem;
+    display: block;
+  }
+  .page-title { font-size: 2.5rem; margin: 0 0 0.75rem; line-height: 1.1; }
+  .page-lede { font-size: 1.05rem; color: var(--ink-soft); max-width: 62ch; margin: 0 0 0; }
+
+  .quick-links { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 1.75rem 0 0; }
+  .quick-links a {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    padding: 0.5rem 0.9rem;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .quick-links a:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+
+  section.doc { padding-top: 3.25rem; border-top: 1px solid var(--border-soft); margin-top: 3.25rem; }
+  section.doc:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+  .doc h2 { font-size: 1.55rem; margin: 0 0 0.6rem; scroll-margin-top: 1.5rem; }
+  .doc > .lede { color: var(--ink-soft); margin: 0 0 1.5rem; max-width: 70ch; }
+
+  .callout {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    margin: 1.25rem 0;
+    font-size: 13.75px;
+    color: var(--ink);
+  }
+  .callout.warn { border-left-color: var(--brass); background: var(--brass-soft); }
+  .callout.danger { border-left-color: var(--danger); background: var(--danger-soft); }
+  .callout strong { display: block; margin-bottom: 0.15rem; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+
+  /* ---------- generic tables ---------- */
+  .field-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; font-size: 13.75px; }
+  .field-table th {
+    text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--ink-faint); padding: 0 0.75rem 0.5rem 0; border-bottom: 1px solid var(--border);
+  }
+  .field-table td { padding: 0.6rem 0.75rem 0.6rem 0; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  .field-table tr:last-child td { border-bottom: none; }
+  .field-table code.f { color: var(--ink); font-weight: 600; font-size: 13px; }
+  .field-table .ty { color: var(--blue); font-size: 12.5px; white-space: nowrap; }
+  .field-table .req { font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+  .field-table .req.yes { color: var(--danger); }
+  .field-table .req.no { color: var(--ink-faint); font-weight: 500; }
+  .field-table .desc { color: var(--ink-soft); }
+
+  .table-wrap { overflow-x: auto; }
+
+  /* ---------- endpoint blocks ---------- */
+  .endpoint { display: grid; grid-template-columns: minmax(0,1fr) minmax(320px, 400px); gap: 2.5rem; margin: 2.25rem 0; align-items: start; }
+  .endpoint-body { min-width: 0; }
+  .endpoint-code { position: sticky; top: 1.25rem; min-width: 0; display: flex; flex-direction: column; gap: 0.9rem; }
+
+  .route {
+    display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; flex-wrap: wrap;
+  }
+  .method {
+    font-family: var(--mono); font-weight: 800; font-size: 11.5px; letter-spacing: 0.02em;
+    padding: 3px 8px; border-radius: 5px; flex-shrink: 0;
+  }
+  .method.get { background: var(--accent-soft); color: var(--accent); }
+  .method.post { background: var(--brass-soft); color: var(--brass); }
+  .method.put { background: var(--blue-soft); color: var(--blue); }
+  .method.delete { background: var(--danger-soft); color: var(--danger); }
+  .route code.path { font-family: var(--mono); font-size: 14.5px; color: var(--ink); font-weight: 600; }
+
+  .endpoint h3 { font-size: 1.15rem; margin: 0 0 0.5rem; scroll-margin-top: 1.5rem; }
+  .endpoint .desc { color: var(--ink-soft); margin: 0 0 1rem; }
+
+  .req-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1.25rem; }
+  .chip {
+    font-size: 12px; font-weight: 600; padding: 0.28rem 0.65rem; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--ink-soft); background: var(--panel-raised);
+    display: inline-flex; align-items: center; gap: 0.35rem;
+  }
+  .chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .chip.scope { border-color: var(--brass); color: var(--brass); background: var(--brass-soft); font-family: var(--mono); }
+
+  .subhead { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint); margin: 1.25rem 0 0.4rem; }
+
+  .errors-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+  .errors-list li { display: flex; gap: 0.6rem; align-items: baseline; font-size: 13.5px; }
+  .errors-list .code {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; flex-shrink: 0; min-width: 3rem; text-align: right;
+  }
+  .errors-list .code.st4 { color: var(--brass); }
+  .errors-list .code.st40 { color: var(--danger); }
+  .errors-list .code.st50 { color: var(--ink-faint); }
+  .errors-list .ecode { font-family: var(--mono); background: var(--panel-raised); border: 1px solid var(--border); padding: 0.05rem 0.4rem; border-radius: 4px; font-size: 12px; }
+  .errors-list .emsg { color: var(--ink-soft); }
+
+  /* ---------- code panel ---------- */
+  .code-block {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .code-block .cb-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--code-border);
+    font-family: var(--mono); font-size: 11px; color: var(--code-faint); letter-spacing: 0.03em;
+  }
+  .code-block .cb-head .dots { display: flex; gap: 5px; }
+  .code-block .cb-head .dots span { width: 7px; height: 7px; border-radius: 50%; background: #333c4a; display: block; }
+  .code-block pre {
+    margin: 0; padding: 0.95rem 1.05rem; overflow-x: auto; font-size: 12.5px; line-height: 1.65; color: var(--code-text);
+  }
+  .code-block pre code { font-family: var(--mono); white-space: pre; }
+  .tok-key { color: #8ab4f8; }
+  .tok-str { color: #9fd88f; }
+  .tok-num { color: #e0a94f; }
+  .tok-bool { color: #d698e0; }
+  .tok-c { color: var(--code-faint); font-style: italic; }
+  .tok-hdr { color: #e0a94f; }
+
+  .resp-label { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.03em; padding-left: 0.15rem; }
+
+  /* ---------- misc content ---------- */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1.25rem 0; }
+  .kv-card { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 1rem 1.15rem; }
+  .kv-card h4 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+  .kv-card p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+
+  footer.docs-footer {
+    margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-soft);
+    color: var(--ink-faint); font-size: 12.5px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
+  }
+
+  @media (max-width: 980px) {
+    .endpoint { grid-template-columns: minmax(0,1fr); }
+    .endpoint-code { position: static; }
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar { position: fixed; inset: 0 auto 0 0; width: 78vw; max-width: 320px; z-index: 40; transform: translateX(-100%); transition: transform 0.2s ease; }
+    #nav-toggle:checked ~ .shell .sidebar { transform: translateX(0); }
+    .topbar { display: flex; }
+    .content-wrap { padding: 2rem 1.25rem 6rem; }
+    .page-title { font-size: 1.9rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<input type="checkbox" id="nav-toggle" aria-hidden="true">
+
+<div class="shell">
+  <nav class="sidebar" aria-label="API reference navigation">
+    <a class="brand" href="#top">
+      <span class="brand-mark">K</span>
+      <span>
+        <span class="brand-name">Kolo</span>
+        <span class="brand-tag">API REFERENCE</span>
+      </span>
+    </a>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Start here</span>
+      <a href="#overview">Overview</a>
+      <a href="#authentication">Authentication</a>
+      <a href="#modes">Test &amp; live modes</a>
+      <a href="#idempotency">Idempotency</a>
+      <a href="#errors">Errors</a>
+      <a href="#pagination">Pagination &amp; limits</a>
+      <a href="#webhooks-guide">Webhooks</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Tokens</span>
+      <a href="#create-token"><span class="m m-post">POST</span>Create a token</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Charges</span>
+      <a href="#create-charge"><span class="m m-post">POST</span>Create a charge</a>
+      <a href="#list-charges"><span class="m m-get">GET</span>List charges</a>
+      <a href="#get-charge"><span class="m m-get">GET</span>Retrieve a charge</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Payouts</span>
+      <a href="#create-payout"><span class="m m-post">POST</span>Create a payout</a>
+      <a href="#list-payouts"><span class="m m-get">GET</span>List payouts</a>
+      <a href="#get-payout"><span class="m m-get">GET</span>Retrieve a payout</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Checkout sessions</span>
+      <a href="#create-checkout"><span class="m m-post">POST</span>Create a session</a>
+      <a href="#get-checkout"><span class="m m-get">GET</span>Retrieve a session</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Dashboard · API keys</span>
+      <a href="#create-key"><span class="m m-post">POST</span>Create a key</a>
+      <a href="#list-keys"><span class="m m-get">GET</span>List keys</a>
+      <a href="#rotate-key"><span class="m m-post">POST</span>Rotate a key</a>
+      <a href="#revoke-key"><span class="m m-delete">DEL</span>Revoke a key</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Dashboard · Webhook endpoints</span>
+      <a href="#create-endpoint"><span class="m m-post">POST</span>Add an endpoint</a>
+      <a href="#list-endpoints"><span class="m m-get">GET</span>List endpoints</a>
+      <a href="#delete-endpoint"><span class="m m-delete">DEL</span>Remove an endpoint</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Customer · Transfers</span>
+      <a href="#send-transfer"><span class="m m-post">POST</span>Send a transfer</a>
+      <a href="#list-pending"><span class="m m-get">GET</span>List pending transfers</a>
+      <a href="#cancel-transfer"><span class="m m-post">POST</span>Cancel a transfer</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Customer · Connected apps</span>
+      <a href="#grant-auth"><span class="m m-post">POST</span>Authorize a merchant</a>
+      <a href="#list-auths"><span class="m m-get">GET</span>List authorizations</a>
+      <a href="#revoke-auth"><span class="m m-delete">DEL</span>Revoke access</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Customer · Disputes</span>
+      <a href="#create-dispute"><span class="m m-post">POST</span>Open a dispute</a>
+      <a href="#list-disputes"><span class="m m-get">GET</span>List disputes</a>
+      <a href="#get-dispute"><span class="m m-get">GET</span>Retrieve a dispute</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Cards</span>
+      <a href="#issue-card"><span class="m m-post">POST</span>Issue a card</a>
+      <a href="#list-cards"><span class="m m-get">GET</span>List cards</a>
+      <a href="#freeze-card"><span class="m m-post">POST</span>Freeze a card</a>
+      <a href="#unfreeze-card"><span class="m m-post">POST</span>Unfreeze a card</a>
+      <a href="#card-limits"><span class="m m-put">PUT</span>Set card limits</a>
+      <a href="#card-auths"><span class="m m-get">GET</span>List authorizations</a>
+      <a href="#card-3ds"><span class="m m-post">POST</span>Complete 3-D Secure</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Account recovery</span>
+      <a href="#recovery-initiate"><span class="m m-post">POST</span>Initiate recovery</a>
+      <a href="#recovery-complete"><span class="m m-post">POST</span>Complete recovery</a>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-group-label">Webhooks</span>
+      <a href="#webhook-events">Event types &amp; signing</a>
+    </div>
+  </nav>
+
+  <main id="top">
+    <div class="topbar">
+      <label for="nav-toggle">☰ &nbsp;Menu</label>
+      <span class="brand-name" style="color:#fff;font-size:13px;">Kolo API</span>
+    </div>
+
+    <div class="content-wrap">
+
+      <!-- ============ OVERVIEW ============ -->
+      <section class="doc" id="overview">
+        <span class="eyebrow">Kolo API Reference</span>
+        <h1 class="page-title">Build on Kolo</h1>
+        <p class="page-lede">Kolo is a mock banking core: ledger accounts, cards, internal and external transfers, and merchant collections — all reachable over a single JSON API. This reference documents every endpoint exactly as implemented, including every error you can actually hit.</p>
+
+        <div class="quick-links">
+          <a href="#authentication">Authenticate a request →</a>
+          <a href="#create-charge">Create your first charge →</a>
+          <a href="#webhooks-guide">Listen for events →</a>
+          <a href="#errors">Handle errors →</a>
+        </div>
+
+        <div class="grid-2" style="margin-top:2.25rem;">
+          <div class="kv-card">
+            <h4>Base URL</h4>
+            <p>Kolo runs as a self-hosted Docker stack rather than a shared public API — point requests at wherever your instance is deployed. Locally, that's <code>http://localhost:8080</code> after <code>make up</code>. This page itself is served at <code>/docs</code> on that same host.</p>
+          </div>
+          <div class="kv-card">
+            <h4>Format</h4>
+            <p>Every request and response body is JSON. Amounts are always integers in the currency's minor unit — <code>amount_minor: 250000</code> on currency <code>NGN</code> is ₦2,500.00, never a float.</p>
+          </div>
+          <div class="kv-card">
+            <h4>Two ways in</h4>
+            <p>An <strong>API key</strong> authenticates a merchant's server-to-server integration (charges, payouts, checkout). A <strong>session token</strong> authenticates a logged-in person — a merchant's dashboard, or a customer's own account.</p>
+          </div>
+          <div class="kv-card">
+            <h4>Idempotent by default</h4>
+            <p>Every endpoint that moves money or creates a resource accepts (and most require) an <code>Idempotency-Key</code> header. Retry safely — you'll never double-charge or double-send.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ AUTH ============ -->
+      <section class="doc" id="authentication">
+        <h2>Authentication</h2>
+        <p class="lede">Every request carries its credential the same way: an <code>Authorization: Bearer &lt;token&gt;</code> header. Which kind of token you send determines which routes you can call.</p>
+
+        <div class="grid-2">
+          <div class="kv-card">
+            <h4>API keys — merchant integrations</h4>
+            <p>Used on <code>/v1/tokens</code>, <code>/v1/charges</code>, <code>/v1/payouts</code>, and <code>/v1/checkout-sessions</code>. Created from the merchant dashboard (see <a href="#create-key">Create a key</a>). Each key carries a <strong>mode</strong> (sandbox or live) and a list of <strong>scopes</strong> that gate individual routes.</p>
+          </div>
+          <div class="kv-card">
+            <h4>Session tokens — logged-in people</h4>
+            <p>Used on <code>/v1/dashboard/*</code> (merchant dashboard actions) and <code>/v1/me/*</code> (a customer's own transfers, cards, disputes, connected apps). Issued at login; must have completed MFA, or every route rejects with <code>401</code>.</p>
+          </div>
+        </div>
+
+        <div class="code-block" style="margin-top:1.5rem;">
+          <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+          <pre><code><span class="tok-c"># Any authenticated route looks like this</span>
+curl https://your-kolo-host/v1/charges \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_51a9c...e2f0"</span></code></pre>
+        </div>
+
+        <div class="subhead">Scopes</div>
+        <p>An API key's scopes are assigned when it's created (<a href="#create-key">Create a key</a>) and are free-form strings — only the five below are ever checked by a route. A key without the required scope for a route gets <code>403 forbidden</code>.</p>
+        <div class="table-wrap">
+          <table class="field-table">
+            <tr><th>Scope</th><th>Grants</th></tr>
+            <tr><td><code class="f">charges:write</code></td><td class="desc">Create tokens and charges</td></tr>
+            <tr><td><code class="f">charges:read</code></td><td class="desc">List and retrieve charges</td></tr>
+            <tr><td><code class="f">payouts:write</code></td><td class="desc">Create payouts</td></tr>
+            <tr><td><code class="f">payouts:read</code></td><td class="desc">List and retrieve payouts</td></tr>
+            <tr><td><code class="f">checkout:write</code></td><td class="desc">Create <em>and</em> retrieve checkout sessions — there's no separate read scope</td></tr>
+          </table>
+        </div>
+
+        <div class="callout">
+          <strong>Ownership, not permission, guards everything else</strong>
+          Getting someone else's charge, payout, checkout session, API key, card, or dispute by ID doesn't return <code>403</code> — it returns <code>404</code>, identical to the ID not existing at all. This is deliberate: it means an attacker probing IDs can't even confirm a resource exists.
+        </div>
+      </section>
+
+      <!-- ============ MODES ============ -->
+      <section class="doc" id="modes">
+        <h2>Test and live modes</h2>
+        <p class="lede">Every API key is minted into exactly one mode, permanently — there's no per-request switch. Everything the key touches (tokens, charges, payouts, checkout sessions, webhook deliveries) inherits that mode and stays fully isolated from the other.</p>
+
+        <div class="table-wrap">
+          <table class="field-table">
+            <tr><th>Mode</th><th>Key prefix</th><th>Behavior</th></tr>
+            <tr><td><code class="f">sandbox</code></td><td><code>kolo_test_…</code></td><td class="desc">Simulated money movement — safe for integration testing, including deliberately failing test cases via marker strings (see individual endpoints).</td></tr>
+            <tr><td><code class="f">live</code></td><td><code>kolo_live_…</code></td><td class="desc">Same simulated rails under the hood (this is a mock banking core end to end), kept in a separate data partition from sandbox so dashboards and reporting never mix the two.</td></tr>
+          </table>
+        </div>
+        <p>List endpoints (charges, payouts, API keys, webhook endpoints) only ever return rows in the calling key's own mode. A sandbox key cannot see, charge against, or receive webhooks for anything created in live mode.</p>
+      </section>
+
+      <!-- ============ IDEMPOTENCY ============ -->
+      <section class="doc" id="idempotency">
+        <h2>Idempotency</h2>
+        <p class="lede">Any endpoint that creates a resource or moves money requires an <code>Idempotency-Key</code> header — a string you generate (a UUID is a good default). Send the same key twice with the same intent and you get back the <em>original</em> result, not a duplicate.</p>
+
+        <div class="code-block">
+          <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+          <pre><code>curl https://your-kolo-host/v1/charges \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_51a9c...e2f0"</span> \
+  -H <span class="tok-str">"Idempotency-Key: 7c3aa6c2-df1b-4a9e-9c9a-1d9e9d6b2f10"</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d <span class="tok-str">'{"token_id":"tok_9f1c...","amount_minor":250000,"currency":"NGN"}'</span></code></pre>
+        </div>
+
+        <div class="callout warn">
+          <strong>Omitting it fails closed, not open</strong>
+          A missing or blank <code>Idempotency-Key</code> on a route that requires one returns <code>400 missing_idempotency_key</code> before your request body is even read — it never silently processes without one.
+        </div>
+
+        <p>Card freeze/unfreeze/limits, dispute creation, connected-app revocation, and account recovery <em>don't</em> require the header — each endpoint's <strong>Headers</strong> panel below states explicitly whether it's required.</p>
+      </section>
+
+      <!-- ============ ERRORS ============ -->
+      <section class="doc" id="errors">
+        <h2>Errors</h2>
+        <p class="lede">Every error — auth, validation, or server-side — comes back as the same shape, at the matching HTTP status code.</p>
+
+        <div class="code-block">
+          <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>Error response</span></div>
+          <pre><code>{
+  <span class="tok-key">"error"</span>: {
+    <span class="tok-key">"code"</span>: <span class="tok-str">"insufficient_balance"</span>,
+    <span class="tok-key">"message"</span>: <span class="tok-str">"insufficient available balance"</span>
+  }
+}</code></pre>
+        </div>
+
+        <p>There is no numeric or nested error hierarchy — <code>code</code> is a stable, greppable string you can switch on, and <code>message</code> is human-readable and may change wording over time. Successful responses are never wrapped — a charge object is returned exactly as shown in its endpoint's example, with no enclosing <code>data</code> key; list endpoints return a bare JSON array.</p>
+
+        <div class="table-wrap">
+          <table class="field-table">
+            <tr><th>Status</th><th>Meaning</th></tr>
+            <tr><td><code class="f">400</code></td><td class="desc">The request itself is malformed — bad JSON, an invalid amount/currency, a missing idempotency key, an out-of-range field.</td></tr>
+            <tr><td><code class="f">401</code></td><td class="desc">Missing, invalid, expired, or not-yet-MFA'd credential.</td></tr>
+            <tr><td><code class="f">403</code></td><td class="desc">Valid credential, wrong scope or wrong identity kind (e.g. an individual calling a business-only dashboard route).</td></tr>
+            <tr><td><code class="f">404</code></td><td class="desc">Resource doesn't exist — or exists but isn't yours. Both look identical, by design.</td></tr>
+            <tr><td><code class="f">409</code></td><td class="desc">The resource exists but is in a state that can't accept this action — a matched-but-blocked transfer awaiting confirmation, an authorization not currently awaiting 3-D Secure, a recovery request not yet past its cooling-off window.</td></tr>
+            <tr><td><code class="f">422</code></td><td class="desc">Semantically valid request that the system understood but won't execute — insufficient balance, a tier limit exceeded, no settlement account in that currency.</td></tr>
+            <tr><td><code class="f">429</code></td><td class="desc">Rate limited — back off and retry.</td></tr>
+            <tr><td><code class="f">500</code></td><td class="desc">Something broke on Kolo's side. Safe to retry with the same idempotency key.</td></tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============ PAGINATION ============ -->
+      <section class="doc" id="pagination">
+        <h2>Pagination &amp; rate limits</h2>
+        <div class="grid-2">
+          <div class="kv-card">
+            <h4>Pagination</h4>
+            <p>List endpoints (charges, payouts) accept <code>?limit=</code>, default <strong>25</strong>, maximum <strong>100</strong>. An invalid or non-positive value is silently treated as the default rather than erroring. There's no cursor — lists return the most recent N by creation time.</p>
+          </div>
+          <div class="kv-card">
+            <h4>Rate limits</h4>
+            <p>API-key routes: <strong>10 requests/second</strong> per key, burst <strong>20</strong>. The public, unauthenticated recovery endpoints are limited by caller IP instead: <strong>0.5 requests/second</strong>, burst <strong>5</strong>. Both return <code>429 rate_limited</code> when exceeded. Session-authenticated dashboard and customer routes aren't rate limited at this layer.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ WEBHOOKS GUIDE ============ -->
+      <section class="doc" id="webhooks-guide">
+        <h2>Webhooks</h2>
+        <p class="lede">Register an endpoint (<a href="#create-endpoint">Add an endpoint</a>) and Kolo will <code>POST</code> a JSON payload to it every time a charge or payout you own reaches a terminal state. Full event and signature reference: <a href="#webhook-events">Event types &amp; signing</a>.</p>
+      </section>
+
+      <!-- ============ TOKENS ============ -->
+      <section class="doc" id="tokens">
+        <h2>Tokens</h2>
+        <p class="lede">A token represents a customer-entered card, tokenized once so your server never has to handle or store the raw card number.</p>
+
+        <div class="endpoint" id="create-token">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/tokens</code></div>
+            <h3>Create a token</h3>
+            <p class="desc">Tokenizes a card number. Use the returned <code>id</code> anywhere a charge asks for <code>token_id</code>.</p>
+
+            <div class="req-meta">
+              <span class="chip on">API key</span>
+              <span class="chip scope">charges:write</span>
+              <span class="chip on">Idempotency-Key required</span>
+            </div>
+
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">card_number</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">12–19 digits.</td></tr>
+              </table>
+            </div>
+
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_card_number</span><span class="emsg">Card number must be 12–19 digits.</span></li>
+              <li><span class="code st50">500</span><span class="ecode">internal_error</span><span class="emsg">Failed to create token.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/tokens \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span> \
+  -H <span class="tok-str">"Idempotency-Key: 3e9f...\"</span> \
+  -d <span class="tok-str">'{"card_number":"4242424242424242"}'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"tok_9f1c2a7e"</span>,
+  <span class="tok-key">"masked_pan"</span>: <span class="tok-str">"424242••••4242"</span>,
+  <span class="tok-key">"card_brand"</span>: <span class="tok-str">"visa"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CHARGES ============ -->
+      <section class="doc" id="charges">
+        <h2>Charges</h2>
+        <p class="lede">A charge collects money from a tokenized card into your settlement account. Execution happens asynchronously against a simulated card rail, so a charge is created <code>pending</code> and transitions to <code>succeeded</code> or <code>failed</code> shortly after — watch for the matching <a href="#webhook-events">webhook event</a> rather than polling.</p>
+
+        <div class="endpoint" id="create-charge">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/charges</code></div>
+            <h3>Create a charge</h3>
+            <p class="desc">Charges <code>token_id</code> for <code>amount_minor</code> into your earliest open settlement account in that currency.</p>
+            <div class="req-meta">
+              <span class="chip on">API key</span><span class="chip scope">charges:write</span><span class="chip on">Idempotency-Key required</span>
+            </div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">token_id</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">From <a href="#create-token">Create a token</a>.</td></tr>
+                <tr><td><code class="f">amount_minor</code></td><td class="ty">integer</td><td><span class="req yes">required</span></td><td class="desc">Minor units — e.g. 250000 = ₦2,500.00.</td></tr>
+                <tr><td><code class="f">currency</code></td><td class="ty">string(3)</td><td><span class="req yes">required</span></td><td class="desc">A 3-character currency code, e.g. <code>NGN</code>.</td></tr>
+              </table>
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_amount</span><span class="emsg">Currency must be exactly 3 characters.</span></li>
+              <li><span class="code st4">422</span><span class="ecode">no_settlement_account</span><span class="emsg">No open account in that currency to receive funds.</span></li>
+              <li><span class="code st50">500</span><span class="ecode">internal_error</span><span class="emsg">Failed to create charge.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/charges \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span> \
+  -H <span class="tok-str">"Idempotency-Key: 7c3a...\"</span> \
+  -d <span class="tok-str">'{
+    "token_id": "tok_9f1c2a7e",
+    "amount_minor": 250000,
+    "currency": "NGN"
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"ch_4b1f7c90"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"pending"</span>,
+  <span class="tok-key">"token_id"</span>: <span class="tok-str">"tok_9f1c2a7e"</span>,
+  <span class="tok-key">"amount_minor"</span>: <span class="tok-num">250000</span>,
+  <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="list-charges">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/charges</code></div>
+            <h3>List charges</h3>
+            <p class="desc">Returns your key's charges, most recent first, scoped to its mode.</p>
+            <div class="req-meta"><span class="chip on">API key</span><span class="chip scope">charges:read</span></div>
+            <div class="subhead">Query</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th></th></tr>
+                <tr><td><code class="f">limit</code></td><td class="ty">integer</td><td class="desc">Default 25, max 100.</td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl <span class="tok-str">"https://your-kolo-host/v1/charges?limit=2"</span> \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK</span>
+            <div class="code-block">
+              <pre><code>[
+  { <span class="tok-key">"id"</span>: <span class="tok-str">"ch_4b1f7c90"</span>, <span class="tok-key">"status"</span>: <span class="tok-str">"succeeded"</span>, <span class="tok-key">"amount_minor"</span>: <span class="tok-num">250000</span>, <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>, <span class="tok-key">"token_id"</span>: <span class="tok-str">"tok_9f1c2a7e"</span>, <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span> },
+  { <span class="tok-key">"id"</span>: <span class="tok-str">"ch_2a8e19dd"</span>, <span class="tok-key">"status"</span>: <span class="tok-str">"pending"</span>, <span class="tok-key">"amount_minor"</span>: <span class="tok-num">50000</span>,  <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>, <span class="tok-key">"token_id"</span>: <span class="tok-str">"tok_10ab55f1"</span>, <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T09:58:12Z"</span> }
+]</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="get-charge">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/charges/{id}</code></div>
+            <h3>Retrieve a charge</h3>
+            <p class="desc">Fetch a single charge by ID.</p>
+            <div class="req-meta"><span class="chip on">API key</span><span class="chip scope">charges:read</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such charge, or it belongs to another merchant.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/charges/ch_4b1f7c90 \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"ch_4b1f7c90"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"succeeded"</span>,
+  <span class="tok-key">"token_id"</span>: <span class="tok-str">"tok_9f1c2a7e"</span>,
+  <span class="tok-key">"amount_minor"</span>: <span class="tok-num">250000</span>,
+  <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ PAYOUTS ============ -->
+      <section class="doc" id="payouts">
+        <h2>Payouts</h2>
+        <p class="lede">A payout sends money out from your settlement account through a named rail to an external recipient. Same async lifecycle as charges — created <code>pending</code>, resolved by webhook.</p>
+
+        <div class="endpoint" id="create-payout">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/payouts</code></div>
+            <h3>Create a payout</h3>
+            <p class="desc">Pays <code>recipient_ref</code> via <code>rail</code> from your earliest open settlement account in that currency.</p>
+            <div class="req-meta"><span class="chip on">API key</span><span class="chip scope">payouts:write</span><span class="chip on">Idempotency-Key required</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">rail</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">A registered rail name, e.g. <code>ach</code>, <code>wire</code>, <code>card</code>.</td></tr>
+                <tr><td><code class="f">recipient_ref</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Rail-specific recipient identifier.</td></tr>
+                <tr><td><code class="f">amount_minor</code></td><td class="ty">integer</td><td><span class="req yes">required</span></td><td class="desc">Minor units.</td></tr>
+                <tr><td><code class="f">currency</code></td><td class="ty">string(3)</td><td><span class="req yes">required</span></td><td class="desc">3-character currency code.</td></tr>
+              </table>
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_amount</span><span class="emsg">Currency must be exactly 3 characters.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">unknown_rail</span><span class="emsg"><code>rail</code> isn't registered.</span></li>
+              <li><span class="code st4">422</span><span class="ecode">no_settlement_account</span><span class="emsg">No open account in that currency.</span></li>
+              <li><span class="code st50">500</span><span class="ecode">internal_error</span><span class="emsg">Failed to create payout.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/payouts \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span> \
+  -H <span class="tok-str">"Idempotency-Key: 91bd...\"</span> \
+  -d <span class="tok-str">'{
+    "rail": "ach",
+    "recipient_ref": "acct:00998877",
+    "amount_minor": 1500000,
+    "currency": "NGN"
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"po_71ad0e3c"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"pending"</span>,
+  <span class="tok-key">"rail"</span>: <span class="tok-str">"ach"</span>,
+  <span class="tok-key">"recipient_ref"</span>: <span class="tok-str">"acct:00998877"</span>,
+  <span class="tok-key">"amount_minor"</span>: <span class="tok-num">1500000</span>,
+  <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="list-payouts">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/payouts</code></div>
+            <h3>List payouts</h3>
+            <p class="desc">Returns your key's payouts, most recent first, scoped to its mode. Accepts the same <code>?limit=</code> as charges.</p>
+            <div class="req-meta"><span class="chip on">API key</span><span class="chip scope">payouts:read</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/payouts \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK</span>
+            <div class="code-block">
+              <pre><code>[
+  { <span class="tok-key">"id"</span>: <span class="tok-str">"po_71ad0e3c"</span>, <span class="tok-key">"status"</span>: <span class="tok-str">"succeeded"</span>, <span class="tok-key">"rail"</span>: <span class="tok-str">"ach"</span>, <span class="tok-key">"amount_minor"</span>: <span class="tok-num">1500000</span>, <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>, <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span> }
+]</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="get-payout">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/payouts/{id}</code></div>
+            <h3>Retrieve a payout</h3>
+            <p class="desc">Fetch a single payout by ID.</p>
+            <div class="req-meta"><span class="chip on">API key</span><span class="chip scope">payouts:read</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such payout, or it belongs to another merchant.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/payouts/po_71ad0e3c \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"po_71ad0e3c"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"succeeded"</span>,
+  <span class="tok-key">"rail"</span>: <span class="tok-str">"ach"</span>,
+  <span class="tok-key">"recipient_ref"</span>: <span class="tok-str">"acct:00998877"</span>,
+  <span class="tok-key">"amount_minor"</span>: <span class="tok-num">1500000</span>,
+  <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CHECKOUT ============ -->
+      <section class="doc" id="checkout">
+        <h2>Checkout sessions</h2>
+        <p class="lede">A hosted checkout session — create one server-side, redirect your customer to <code>redirect_url</code>, and Kolo handles collecting payment.</p>
+
+        <div class="endpoint" id="create-checkout">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/checkout-sessions</code></div>
+            <h3>Create a session</h3>
+            <div class="req-meta"><span class="chip on">API key</span><span class="chip scope">checkout:write</span><span class="chip on">Idempotency-Key required</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">amount_minor</code></td><td class="ty">integer</td><td><span class="req yes">required</span></td><td class="desc">Minor units.</td></tr>
+                <tr><td><code class="f">currency</code></td><td class="ty">string(3)</td><td><span class="req yes">required</span></td><td class="desc">3-character currency code.</td></tr>
+                <tr><td><code class="f">success_url</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Where the customer lands after paying.</td></tr>
+                <tr><td><code class="f">cancel_url</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Where the customer lands if they back out.</td></tr>
+              </table>
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_amount</span><span class="emsg">Currency must be exactly 3 characters.</span></li>
+              <li><span class="code st50">500</span><span class="ecode">internal_error</span><span class="emsg">Failed to create session.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/checkout-sessions \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span> \
+  -H <span class="tok-str">"Idempotency-Key: 5f2e...\"</span> \
+  -d <span class="tok-str">'{
+    "amount_minor": 750000,
+    "currency": "NGN",
+    "success_url": "https://shop.example/success",
+    "cancel_url": "https://shop.example/cancel"
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"cs_c81fa920"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"open"</span>,
+  <span class="tok-key">"amount_minor"</span>: <span class="tok-num">750000</span>,
+  <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>,
+  <span class="tok-key">"redirect_url"</span>: <span class="tok-str">"https://your-kolo-host/checkout/cs_c81fa920"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>,
+  <span class="tok-key">"expires_at"</span>: <span class="tok-str">"2026-08-15T10:30:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="get-checkout">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/checkout-sessions/{id}</code></div>
+            <h3>Retrieve a session</h3>
+            <p class="desc">Fetch a checkout session's current status.</p>
+            <div class="req-meta"><span class="chip on">API key</span><span class="chip scope">checkout:write</span></div>
+            <div class="callout">There's no separate read scope for checkout sessions — retrieving one still requires <code>checkout:write</code>.</div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such session, or it belongs to another merchant.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/checkout-sessions/cs_c81fa920 \
+  -H <span class="tok-str">"Authorization: Bearer kolo_test_..."</span></code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ DASHBOARD API KEYS ============ -->
+      <section class="doc" id="dashboard-keys">
+        <h2>Dashboard · API keys</h2>
+        <p class="lede">Session-authenticated — a merchant manages their own integration keys from the dashboard, not with an API key. Restricted to <strong>business</strong> identities; an individual customer's session gets <code>403</code> here.</p>
+
+        <div class="endpoint" id="create-key">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/dashboard/api-keys</code></div>
+            <h3>Create a key</h3>
+            <div class="req-meta"><span class="chip on">Session</span><span class="chip on">Idempotency-Key required</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">mode</code></td><td class="ty">"sandbox" | "live"</td><td><span class="req yes">required</span></td><td class="desc"></td></tr>
+                <tr><td><code class="f">name</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Label shown in the dashboard.</td></tr>
+                <tr><td><code class="f">scopes</code></td><td class="ty">string[]</td><td><span class="req no">optional</span></td><td class="desc">Any of the five scopes in <a href="#authentication">Authentication</a>. May be empty.</td></tr>
+              </table>
+            </div>
+            <div class="callout danger">
+              <strong>The raw key is shown exactly once</strong>
+              <code>key</code> appears in the response body only here and on <a href="#rotate-key">rotate</a>. Only its SHA-256 hash is stored — there's no way to retrieve it again later, including from <a href="#list-keys">list</a>.
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_mode</span><span class="emsg"><code>mode</code> must be <code>"sandbox"</code> or <code>"live"</code>.</span></li>
+              <li><span class="code st50">500</span><span class="ecode">internal_error</span><span class="emsg">Failed to load identity, or to create the key.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/dashboard/api-keys \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -H <span class="tok-str">"Idempotency-Key: a01f...\"</span> \
+  -d <span class="tok-str">'{
+    "mode": "sandbox",
+    "name": "Backend integration",
+    "scopes": ["charges:write", "charges:read"]
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"key_0c77aa10"</span>,
+  <span class="tok-key">"mode"</span>: <span class="tok-str">"sandbox"</span>,
+  <span class="tok-key">"name"</span>: <span class="tok-str">"Backend integration"</span>,
+  <span class="tok-key">"key_prefix"</span>: <span class="tok-str">"kolo_test_51"</span>,
+  <span class="tok-key">"scopes"</span>: [<span class="tok-str">"charges:write"</span>, <span class="tok-str">"charges:read"</span>],
+  <span class="tok-key">"status"</span>: <span class="tok-str">"active"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>,
+  <span class="tok-key">"key"</span>: <span class="tok-str">"kolo_test_51a9c3f0...e2f0"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="list-keys">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/dashboard/api-keys</code></div>
+            <h3>List keys</h3>
+            <p class="desc">All of the merchant's keys, newest first. Never includes the raw <code>key</code>.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/dashboard/api-keys \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK</span>
+            <div class="code-block">
+              <pre><code>[
+  {
+    <span class="tok-key">"id"</span>: <span class="tok-str">"key_0c77aa10"</span>,
+    <span class="tok-key">"mode"</span>: <span class="tok-str">"sandbox"</span>,
+    <span class="tok-key">"name"</span>: <span class="tok-str">"Backend integration"</span>,
+    <span class="tok-key">"key_prefix"</span>: <span class="tok-str">"kolo_test_51"</span>,
+    <span class="tok-key">"scopes"</span>: [<span class="tok-str">"charges:write"</span>],
+    <span class="tok-key">"status"</span>: <span class="tok-str">"active"</span>,
+    <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+  }
+]</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="rotate-key">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/dashboard/api-keys/{id}/rotate</code></div>
+            <h3>Rotate a key</h3>
+            <p class="desc">Issues a fresh secret for the same mode, name, and scopes, then immediately revokes the old one.</p>
+            <div class="req-meta"><span class="chip on">Session</span><span class="chip on">Idempotency-Key required</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such key, or it belongs to another merchant.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/dashboard/api-keys/key_0c77aa10/rotate \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -H <span class="tok-str">"Idempotency-Key: b52c...\"</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK — includes the new raw <code>key</code>, same shape as create</span>
+          </div>
+        </div>
+
+        <div class="endpoint" id="revoke-key">
+          <div class="endpoint-body">
+            <div class="route"><span class="method delete">DELETE</span><code class="path">/v1/dashboard/api-keys/{id}</code></div>
+            <h3>Revoke a key</h3>
+            <p class="desc">Immediately and permanently disables the key. No idempotency key needed — deletion is naturally idempotent.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such key, or it belongs to another merchant.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/dashboard/api-keys/key_0c77aa10 \
+  -X DELETE \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">204 No Content</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ DASHBOARD WEBHOOK ENDPOINTS ============ -->
+      <section class="doc" id="dashboard-endpoints">
+        <h2>Dashboard · Webhook endpoints</h2>
+        <p class="lede">Also session-authenticated, business identities only.</p>
+
+        <div class="endpoint" id="create-endpoint">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/dashboard/webhook-endpoints</code></div>
+            <h3>Add an endpoint</h3>
+            <div class="req-meta"><span class="chip on">Session</span><span class="chip on">Idempotency-Key required</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">mode</code></td><td class="ty">"sandbox" | "live"</td><td><span class="req yes">required</span></td><td class="desc">Only events from keys in this mode are delivered here.</td></tr>
+                <tr><td><code class="f">url</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Non-empty. Not otherwise validated as a URL — double-check it yourself.</td></tr>
+              </table>
+            </div>
+            <div class="callout danger">
+              <strong>The signing secret is shown exactly once</strong>
+              <code>secret</code> (a <code>whsec_…</code> value) appears only in this response, never on <a href="#list-endpoints">list</a>. Store it immediately — you'll need it to verify deliveries, see <a href="#webhook-events">Event types &amp; signing</a>.
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_mode</span><span class="emsg"><code>mode</code> must be <code>"sandbox"</code> or <code>"live"</code>.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_url</span><span class="emsg"><code>url</code> is required.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/dashboard/webhook-endpoints \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -H <span class="tok-str">"Idempotency-Key: c710...\"</span> \
+  -d <span class="tok-str">'{
+    "mode": "sandbox",
+    "url": "https://shop.example/webhooks/kolo"
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"we_2f19cc80"</span>,
+  <span class="tok-key">"mode"</span>: <span class="tok-str">"sandbox"</span>,
+  <span class="tok-key">"url"</span>: <span class="tok-str">"https://shop.example/webhooks/kolo"</span>,
+  <span class="tok-key">"active"</span>: <span class="tok-bool">true</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>,
+  <span class="tok-key">"secret"</span>: <span class="tok-str">"whsec_9f8a1c...b02e"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="list-endpoints">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/dashboard/webhook-endpoints</code></div>
+            <h3>List endpoints</h3>
+            <p class="desc">All of the merchant's registered endpoints. Never includes <code>secret</code>.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/dashboard/webhook-endpoints \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="delete-endpoint">
+          <div class="endpoint-body">
+            <div class="route"><span class="method delete">DELETE</span><code class="path">/v1/dashboard/webhook-endpoints/{id}</code></div>
+            <h3>Remove an endpoint</h3>
+            <p class="desc">Deactivates the endpoint (soft delete — <code>active</code> is set to <code>false</code>, no further deliveries are attempted).</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such endpoint, or it belongs to another merchant.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/dashboard/webhook-endpoints/we_2f19cc80 \
+  -X DELETE \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">204 No Content</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CUSTOMER TRANSFERS ============ -->
+      <section class="doc" id="customer-transfers">
+        <h2>Customer · Transfers</h2>
+        <p class="lede">A customer sending money to another Kolo customer by email — session-authenticated, from the customer's own account. Kolo checks the recipient's name against the account on record and, for large or first-time transfers, holds the funds in a cancellable cooling-off window rather than sending immediately.</p>
+
+        <div class="endpoint" id="send-transfer">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/me/transfers</code></div>
+            <h3>Send a transfer</h3>
+            <div class="req-meta"><span class="chip on">Session</span><span class="chip on">Idempotency-Key required</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">recipient_email</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Must belong to an existing Kolo identity with an open account.</td></tr>
+                <tr><td><code class="f">recipient_name</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">What the sender typed as the recipient's name — checked against the account on record.</td></tr>
+                <tr><td><code class="f">amount_minor</code></td><td class="ty">integer</td><td><span class="req yes">required</span></td><td class="desc">Minor units.</td></tr>
+                <tr><td><code class="f">currency</code></td><td class="ty">string(3)</td><td><span class="req yes">required</span></td><td class="desc">3-character currency code.</td></tr>
+                <tr><td><code class="f">confirm_mismatch</code></td><td class="ty">boolean</td><td><span class="req no">optional</span></td><td class="desc">Set <code>true</code> to proceed anyway after a <code>409</code> name-mismatch response.</td></tr>
+              </table>
+            </div>
+
+            <div class="subhead">Response shape varies by outcome</div>
+            <p>A low-risk transfer settles immediately (<code>outcome: "completed"</code>, <code>transaction_id</code> set). A high-risk one — first-time payee, an unusually large amount, or a name mismatch you've confirmed — is held instead (<code>outcome: "held"</code>, <code>pending_id</code> and <code>release_at</code> set, no <code>transaction_id</code>). <code>reasons</code> lists why, when present.</p>
+
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_amount</span><span class="emsg">Currency must be exactly 3 characters.</span></li>
+              <li><span class="code st4">422</span><span class="ecode">no_account</span><span class="emsg">You have no open account.</span></li>
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">Recipient email doesn't match an existing identity.</span></li>
+              <li><span class="code st4" style="color:var(--blue)">409</span><span class="emsg" style="font-style:italic;">Name mismatch, not yet confirmed — body is <code>{"outcome":"blocked","payee_result":"…"}</code>, not the standard error envelope. Retry with <code>confirm_mismatch: true</code> to proceed.</span></li>
+              <li><span class="code st4">422</span><span class="ecode">limit_exceeded</span><span class="emsg">Exceeds your KYC-tier transfer limit.</span></li>
+              <li><span class="code st4">422</span><span class="ecode">insufficient_balance</span><span class="emsg">Not enough available balance.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/transfers \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -H <span class="tok-str">"Idempotency-Key: 8d40...\"</span> \
+  -d <span class="tok-str">'{
+    "recipient_email": "amara@example.com",
+    "recipient_name": "Amara Okafor",
+    "amount_minor": 2000000,
+    "currency": "NGN"
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created — completed</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"outcome"</span>: <span class="tok-str">"completed"</span>,
+  <span class="tok-key">"payee_result"</span>: <span class="tok-str">"match"</span>,
+  <span class="tok-key">"transaction_id"</span>: <span class="tok-str">"txn_aa02f781"</span>
+}</code></pre>
+            </div>
+            <span class="resp-label">201 Created — held (cooling-off)</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"outcome"</span>: <span class="tok-str">"held"</span>,
+  <span class="tok-key">"payee_result"</span>: <span class="tok-str">"match"</span>,
+  <span class="tok-key">"reasons"</span>: [<span class="tok-str">"first_time_payee"</span>],
+  <span class="tok-key">"pending_id"</span>: <span class="tok-str">"pt_5c11e004"</span>,
+  <span class="tok-key">"release_at"</span>: <span class="tok-str">"2026-08-15T10:02:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="list-pending">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/me/transfers/pending</code></div>
+            <h3>List pending transfers</h3>
+            <p class="desc">Your own transfers currently held in cooling-off, still cancellable.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/transfers/pending \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK</span>
+            <div class="code-block">
+              <pre><code>[
+  {
+    <span class="tok-key">"id"</span>: <span class="tok-str">"pt_5c11e004"</span>,
+    <span class="tok-key">"to_account_id"</span>: <span class="tok-str">"acc_77f0"</span>,
+    <span class="tok-key">"amount_minor"</span>: <span class="tok-num">2000000</span>,
+    <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>,
+    <span class="tok-key">"reasons"</span>: [<span class="tok-str">"first_time_payee"</span>],
+    <span class="tok-key">"status"</span>: <span class="tok-str">"pending"</span>,
+    <span class="tok-key">"release_at"</span>: <span class="tok-str">"2026-08-15T10:02:00Z"</span>,
+    <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+  }
+]</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="cancel-transfer">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/me/transfers/{id}/cancel</code></div>
+            <h3>Cancel a transfer</h3>
+            <p class="desc">Releases a still-pending hold before its cooling-off window elapses.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No cancellable transfer with that ID — already released, already cancelled, or not yours.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/transfers/pt_5c11e004/cancel \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">204 No Content</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CONNECTED APPS ============ -->
+      <section class="doc" id="connected-apps">
+        <h2>Customer · Connected apps</h2>
+        <p class="lede">A customer's view of which merchants they've authorized, and with what scopes — the consent side of the API-key system above.</p>
+
+        <div class="endpoint" id="grant-auth">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/me/authorize/{merchantID}</code></div>
+            <h3>Authorize a merchant</h3>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">scopes</code></td><td class="ty">string[]</td><td><span class="req yes">required</span></td><td class="desc">Must be non-empty.</td></tr>
+              </table>
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_scopes</span><span class="emsg">At least one scope is required.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/authorize/mch_88a1 \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -d <span class="tok-str">'{"scopes":["charges:read"]}'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"auth_e410"</span>,
+  <span class="tok-key">"merchant_id"</span>: <span class="tok-str">"mch_88a1"</span>,
+  <span class="tok-key">"scopes"</span>: [<span class="tok-str">"charges:read"</span>],
+  <span class="tok-key">"status"</span>: <span class="tok-str">"active"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="list-auths">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/me/authorizations</code></div>
+            <h3>List authorizations</h3>
+            <p class="desc">Every merchant this customer has ever authorized, active or revoked.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/authorizations \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="revoke-auth">
+          <div class="endpoint-body">
+            <div class="route"><span class="method delete">DELETE</span><code class="path">/v1/me/authorizations/{id}</code></div>
+            <h3>Revoke access</h3>
+            <p class="desc">Immediately revokes a merchant's access.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">Returned for every failure here, including "not yours" — there's no distinct 500 path on this route.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/authorizations/auth_e410 \
+  -X DELETE \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">204 No Content</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ DISPUTES ============ -->
+      <section class="doc" id="disputes">
+        <h2>Customer · Disputes</h2>
+        <p class="lede">A customer opens a dispute against a transfer, charge, or card purchase; a back-office case worker takes it from there. Kolo verifies you actually own the thing you're disputing before accepting it.</p>
+
+        <div class="endpoint" id="create-dispute">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/me/disputes</code></div>
+            <h3>Open a dispute</h3>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">source_type</code></td><td class="ty">enum</td><td><span class="req yes">required</span></td><td class="desc"><code>"external_transfer"</code>, <code>"cooling_off_transfer"</code>, or <code>"card_authorization"</code>.</td></tr>
+                <tr><td><code class="f">source_id</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Must belong to you.</td></tr>
+                <tr><td><code class="f">reason</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc"></td></tr>
+              </table>
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_source_type</span><span class="emsg">Not one of the three allowed values.</span></li>
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">The referenced transfer/charge/authorization doesn't exist, or isn't yours.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/disputes \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -d <span class="tok-str">'{
+    "source_type": "card_authorization",
+    "source_id": "auth_7c10",
+    "reason": "did not authorize this purchase"
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"disp_44e0"</span>,
+  <span class="tok-key">"source_type"</span>: <span class="tok-str">"card_authorization"</span>,
+  <span class="tok-key">"source_id"</span>: <span class="tok-str">"auth_7c10"</span>,
+  <span class="tok-key">"reason"</span>: <span class="tok-str">"did not authorize this purchase"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"open"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>,
+  <span class="tok-key">"updated_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="list-disputes">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/me/disputes</code></div>
+            <h3>List disputes</h3>
+            <p class="desc">Your most recent 50 disputes.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/disputes \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="get-dispute">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/me/disputes/{id}</code></div>
+            <h3>Retrieve a dispute</h3>
+            <p class="desc">Includes <code>resolution</code> once a case worker has closed it out.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such dispute, or it belongs to someone else.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/disputes/disp_44e0 \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ CARDS ============ -->
+      <section class="doc" id="cards">
+        <h2>Cards</h2>
+        <p class="lede">Issue and manage cards tied to a customer's own account — freeze, per-card limits, merchant-category blocks, and 3-D Secure. Authorization and settlement are driven by the simulated card network itself, not called directly over this API.</p>
+
+        <div class="endpoint" id="issue-card">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/me/cards</code></div>
+            <h3>Issue a card</h3>
+            <div class="req-meta"><span class="chip on">Session</span><span class="chip on">Idempotency-Key required</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">account_id</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Must be one of your own accounts.</td></tr>
+                <tr><td><code class="f">card_type</code></td><td class="ty">"virtual" | "physical"</td><td><span class="req yes">required</span></td><td class="desc"></td></tr>
+              </table>
+            </div>
+            <div class="callout">The full card number is never returned by any endpoint — only <code>pan_last4</code>.</div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_card_type</span><span class="emsg">Not <code>"virtual"</code> or <code>"physical"</code>.</span></li>
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg"><code>account_id</code> doesn't belong to you.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/cards \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -H <span class="tok-str">"Idempotency-Key: f001...\"</span> \
+  -d <span class="tok-str">'{"account_id":"acc_77f0","card_type":"virtual"}'</span></code></pre>
+            </div>
+            <span class="resp-label">201 Created</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"card_a013"</span>,
+  <span class="tok-key">"account_id"</span>: <span class="tok-str">"acc_77f0"</span>,
+  <span class="tok-key">"card_type"</span>: <span class="tok-str">"virtual"</span>,
+  <span class="tok-key">"pan_last4"</span>: <span class="tok-str">"4242"</span>,
+  <span class="tok-key">"brand"</span>: <span class="tok-str">"kolocard"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"active"</span>,
+  <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="list-cards">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/me/cards</code></div>
+            <h3>List cards</h3>
+            <p class="desc">All cards on your account.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/cards \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="freeze-card">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/me/cards/{id}/freeze</code></div>
+            <h3>Freeze a card</h3>
+            <p class="desc">Blocks all new authorizations immediately; reversible.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such card, or it isn't yours.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/cards/card_a013/freeze \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">204 No Content</span>
+          </div>
+        </div>
+
+        <div class="endpoint" id="unfreeze-card">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/me/cards/{id}/unfreeze</code></div>
+            <h3>Unfreeze a card</h3>
+            <p class="desc">Reactivates a frozen card.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/cards/card_a013/unfreeze \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">204 No Content</span>
+          </div>
+        </div>
+
+        <div class="endpoint" id="card-limits">
+          <div class="endpoint-body">
+            <div class="route"><span class="method put">PUT</span><code class="path">/v1/me/cards/{id}/limits</code></div>
+            <h3>Set card limits</h3>
+            <p class="desc">Replaces the card's daily and per-transaction ceilings and its merchant-category block list, wholesale.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">daily_limit_minor</code></td><td class="ty">integer</td><td><span class="req yes">required</span></td><td class="desc">Must be &gt; 0.</td></tr>
+                <tr><td><code class="f">per_transaction_limit_minor</code></td><td class="ty">integer</td><td><span class="req yes">required</span></td><td class="desc">Must be &gt; 0.</td></tr>
+                <tr><td><code class="f">blocked_mccs</code></td><td class="ty">string[]</td><td><span class="req no">optional</span></td><td class="desc">Merchant category codes to decline outright.</td></tr>
+              </table>
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_limits</span><span class="emsg">Both limits must be positive.</span></li>
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such card, or it isn't yours.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/cards/card_a013/limits \
+  -X PUT \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -d <span class="tok-str">'{
+    "daily_limit_minor": 5000000,
+    "per_transaction_limit_minor": 2000000,
+    "blocked_mccs": ["7995"]
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">204 No Content</span>
+          </div>
+        </div>
+
+        <div class="endpoint" id="card-auths">
+          <div class="endpoint-body">
+            <div class="route"><span class="method get">GET</span><code class="path">/v1/me/cards/{id}/authorizations</code></div>
+            <h3>List authorizations</h3>
+            <p class="desc">Purchase attempts on this card — approved, declined, settled, and voided.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/cards/card_a013/authorizations \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK</span>
+            <div class="code-block">
+              <pre><code>[
+  {
+    <span class="tok-key">"id"</span>: <span class="tok-str">"auth_7c10"</span>,
+    <span class="tok-key">"merchant_name"</span>: <span class="tok-str">"Roban Stores"</span>,
+    <span class="tok-key">"mcc"</span>: <span class="tok-str">"5411"</span>,
+    <span class="tok-key">"amount_minor"</span>: <span class="tok-num">340000</span>,
+    <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>,
+    <span class="tok-key">"status"</span>: <span class="tok-str">"settled"</span>,
+    <span class="tok-key">"created_at"</span>: <span class="tok-str">"2026-08-15T09:40:00Z"</span>
+  }
+]</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="card-3ds">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/me/cards/authorizations/{id}/3ds</code></div>
+            <h3>Complete 3-D Secure</h3>
+            <p class="desc">Submits the one-time code for an authorization that stepped up to 3-D Secure.</p>
+            <div class="req-meta"><span class="chip on">Session</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">code</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc"></td></tr>
+              </table>
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st40">404</span><span class="ecode">not_found</span><span class="emsg">No such authorization, or the card isn't yours.</span></li>
+              <li><span class="code st4" style="color:var(--blue)">409</span><span class="ecode">not_eligible</span><span class="emsg">Authorization isn't currently awaiting 3-D Secure.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/me/cards/authorizations/auth_7c10/3ds \
+  -X POST \
+  -H <span class="tok-str">"Authorization: Bearer &lt;session token&gt;"</span> \
+  -d <span class="tok-str">'{"code":"482913"}'</span></code></pre>
+            </div>
+            <span class="resp-label">200 OK — returns the updated authorization</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ RECOVERY ============ -->
+      <section class="doc" id="recovery">
+        <h2>Account recovery</h2>
+        <p class="lede">Deliberately unauthenticated — this is how a locked-out customer gets back in. Protected by IP rate limiting only (see <a href="#pagination">Pagination &amp; rate limits</a>).</p>
+
+        <div class="callout warn">
+          <strong>Doesn't confirm whether an email exists</strong>
+          <a href="#recovery-initiate">Initiate recovery</a> returns <code>202</code> whether or not the email matches a real account, so the response can't be used to enumerate customers.
+        </div>
+
+        <div class="endpoint" id="recovery-initiate">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/recovery/initiate</code></div>
+            <h3>Initiate recovery</h3>
+            <div class="req-meta"><span class="chip">No auth — public</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">email</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc"></td></tr>
+                <tr><td><code class="f">device_fingerprint</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Identifies the device making the request.</td></tr>
+                <tr><td><code class="f">legal_name</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Re-verified against KYC records.</td></tr>
+                <tr><td><code class="f">address</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">Re-verified against KYC records.</td></tr>
+              </table>
+            </div>
+            <p>A recovery request always enters a cooling-off window before it can complete — <code>eligible_at</code> is when <a href="#recovery-complete">Complete recovery</a> will start accepting it.</p>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st50">500</span><span class="ecode">internal_error</span><span class="emsg">Anything else.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/recovery/initiate \
+  -X POST \
+  -d <span class="tok-str">'{
+    "email": "amara@example.com",
+    "device_fingerprint": "f7a0...c912",
+    "legal_name": "Amara Okafor",
+    "address": "14 Adeola Odeku St, Lagos"
+  }'</span></code></pre>
+            </div>
+            <span class="resp-label">202 Accepted</span>
+            <div class="code-block">
+              <pre><code>{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"rec_301a"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"pending"</span>,
+  <span class="tok-key">"eligible_at"</span>: <span class="tok-str">"2026-08-16T10:00:00Z"</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint" id="recovery-complete">
+          <div class="endpoint-body">
+            <div class="route"><span class="method post">POST</span><code class="path">/v1/recovery/{id}/complete</code></div>
+            <h3>Complete recovery</h3>
+            <p class="desc">Sets a new password once the request has cleared <code>eligible_at</code>.</p>
+            <div class="req-meta"><span class="chip">No auth — public</span></div>
+            <div class="subhead">Body</div>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr>
+                <tr><td><code class="f">new_password</code></td><td class="ty">string</td><td><span class="req yes">required</span></td><td class="desc">At least 8 characters.</td></tr>
+              </table>
+            </div>
+            <div class="subhead">Errors</div>
+            <ul class="errors-list">
+              <li><span class="code st4">400</span><span class="ecode">invalid_request</span><span class="emsg">Malformed JSON body.</span></li>
+              <li><span class="code st4">400</span><span class="ecode">invalid_password</span><span class="emsg">Under 8 characters.</span></li>
+              <li><span class="code st4" style="color:var(--blue)">409</span><span class="ecode">not_eligible</span><span class="emsg">Still inside the cooling-off window.</span></li>
+            </ul>
+          </div>
+          <div class="endpoint-code">
+            <div class="code-block">
+              <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>curl</span></div>
+              <pre><code>curl https://your-kolo-host/v1/recovery/rec_301a/complete \
+  -X POST \
+  -d <span class="tok-str">'{"new_password":"a-much-better-password"}'</span></code></pre>
+            </div>
+            <span class="resp-label">204 No Content</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ WEBHOOK EVENTS ============ -->
+      <section class="doc" id="webhook-events">
+        <h2>Webhook event types &amp; signing</h2>
+        <p class="lede">A charge or payout starts <code>pending</code> and settles asynchronously against a simulated rail. Rather than polling, register an endpoint and Kolo notifies you the moment it reaches a terminal state.</p>
+
+        <div class="subhead">Event types</div>
+        <div class="table-wrap">
+          <table class="field-table">
+            <tr><th>Event</th><th>Fires when</th></tr>
+            <tr><td><code class="f">charge.succeeded</code></td><td class="desc">A charge's linked transfer completes.</td></tr>
+            <tr><td><code class="f">charge.failed</code></td><td class="desc">A charge's linked transfer fails.</td></tr>
+            <tr><td><code class="f">payout.succeeded</code></td><td class="desc">A payout's linked transfer completes.</td></tr>
+            <tr><td><code class="f">payout.failed</code></td><td class="desc">A payout's linked transfer fails.</td></tr>
+          </table>
+        </div>
+        <p>Delivery only ever goes to <strong>active</strong> endpoints registered in the <strong>matching mode</strong> — a sandbox charge never fires a live endpoint, and vice versa.</p>
+
+        <div class="grid-2" style="align-items:start;">
+          <div>
+            <div class="subhead">Request</div>
+            <p style="margin-top:0;">A <code>POST</code> to your <code>url</code>, 5-second timeout, with these headers:</p>
+            <div class="table-wrap">
+              <table class="field-table">
+                <tr><th>Header</th><th></th></tr>
+                <tr><td><code class="f">Content-Type</code></td><td class="desc"><code>application/json</code></td></tr>
+                <tr><td><code class="f">X-Kolo-Event</code></td><td class="desc">One of the four event types above.</td></tr>
+                <tr><td><code class="f">X-Kolo-Signature</code></td><td class="desc"><code>sha256=&lt;hex hmac&gt;</code> — see verification below.</td></tr>
+              </table>
+            </div>
+          </div>
+          <div>
+            <div class="subhead">Retry schedule</div>
+            <p style="margin-top:0;">Anything other than a 2xx response (including a timeout) counts as a failure. Up to <strong>5 attempts</strong> total, backing off <strong>1 min → 5 min → 30 min → 2 hr</strong>. After the 5th failed attempt, the delivery is marked permanently failed — no further retries.</p>
+          </div>
+        </div>
+
+        <div class="subhead">Payload</div>
+        <p>No enclosing envelope — the event type lives only in the <code>X-Kolo-Event</code> header, and the body is exactly the object below:</p>
+        <div class="code-block">
+          <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>POST https://shop.example/webhooks/kolo</span></div>
+          <pre><code><span class="tok-hdr">X-Kolo-Event: charge.succeeded</span>
+<span class="tok-hdr">X-Kolo-Signature: sha256=1f0ab6...9c7e</span>
+<span class="tok-hdr">Content-Type: application/json</span>
+
+{
+  <span class="tok-key">"id"</span>: <span class="tok-str">"ch_4b1f7c90"</span>,
+  <span class="tok-key">"amount_minor"</span>: <span class="tok-num">250000</span>,
+  <span class="tok-key">"currency"</span>: <span class="tok-str">"NGN"</span>,
+  <span class="tok-key">"status"</span>: <span class="tok-str">"succeeded"</span>
+}</code></pre>
+        </div>
+
+        <div class="subhead">Verifying a delivery</div>
+        <p>Recompute the HMAC-SHA256 of the <strong>raw request body</strong> using your endpoint's <code>secret</code> (from <a href="#create-endpoint">Add an endpoint</a>), hex-encode it, and compare against the value after <code>sha256=</code> — reject the delivery if they don't match.</p>
+        <div class="code-block">
+          <div class="cb-head"><span class="dots"><span></span><span></span><span></span></span><span>Go</span></div>
+          <pre><code><span class="tok-c">// secret is the whsec_… value shown once when the endpoint was created</span>
+mac := hmac.New(sha256.New, []byte(secret))
+mac.Write(rawRequestBody)
+expected := <span class="tok-str">"sha256="</span> + hex.EncodeToString(mac.Sum(nil))
+
+<span class="tok-bool">if</span> !hmac.Equal([]byte(expected), []byte(r.Header.Get(<span class="tok-str">"X-Kolo-Signature"</span>))) {
+    <span class="tok-c">// reject — signature mismatch</span>
+}</code></pre>
+        </div>
+      </section>
+
+      <footer class="docs-footer">
+        <span>Kolo API Reference — generated from the live route table and handler code, not a separate spec.</span>
+        <span>Every field, status code, and error string here reflects <code>internal/publicapi</code> as implemented.</span>
+      </footer>
+
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

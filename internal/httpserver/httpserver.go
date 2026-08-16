@@ -10,6 +10,8 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/toluwalase/kolo-bank-server/docs"
 )
 
 const tracerName = "kolo-bank-server/httpserver"
@@ -30,6 +32,7 @@ func New(logger *slog.Logger, db Pinger, apiHandler http.Handler) http.Handler {
 
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", handleReadyz(db))
+	mux.HandleFunc("GET /docs", handleDocs)
 	if apiHandler != nil {
 		mux.Handle("/v1/", apiHandler)
 	}
@@ -40,6 +43,15 @@ func New(logger *slog.Logger, db Pinger, apiHandler http.Handler) http.Handler {
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+// handleDocs serves the API reference (docs/api-reference.html) as-is —
+// a static, self-contained page, embedded into the binary at build time so
+// it needs no separate deploy step or file-serving setup.
+func handleDocs(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(docs.APIReferenceHTML)
 }
 
 func handleReadyz(db Pinger) http.HandlerFunc {
