@@ -13,6 +13,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
@@ -62,8 +63,8 @@ func airtimeBillerID(t *testing.T, pool *pgxpool.Pool) string {
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *externalpayments.Service, *bills.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
-	return ledgerSvc, externalSvc, bills.NewService(pool, externalSvc)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), resilience.NewService(pool), nil)
+	return ledgerSvc, externalSvc, bills.NewService(pool, externalSvc, resilience.NewService(pool))
 }
 
 func TestValidateReference(t *testing.T) {

@@ -11,7 +11,24 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/disputes"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payments"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 )
+
+// writeResilienceError maps a resilience.Check failure to a 503, returning
+// true if err was one. Shared by every handler that calls a guarded
+// service method (docs/banking-backend-spec.md §Phase 10).
+func writeResilienceError(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, resilience.ErrReadOnly) {
+		writeError(w, http.StatusServiceUnavailable, "read_only_mode", "the system is in read-only mode; money movement is temporarily paused")
+		return true
+	}
+	var killErr *resilience.ErrKillSwitchTripped
+	if errors.As(err, &killErr) {
+		writeError(w, http.StatusServiceUnavailable, "kill_switch_tripped", "this operation is temporarily disabled ("+string(killErr.Scope.Type)+":"+killErr.Scope.Value+")")
+		return true
+	}
+	return false
+}
 
 // resolveOwnAccount finds the session identity's earliest open account —
 // the same "no primary account concept yet" simplification
@@ -73,6 +90,9 @@ func (a *api) createTransfer(w http.ResponseWriter, r *http.Request) {
 
 	result, err := a.deps.CoolingOff.Send(r.Context(), fromAccountID, identityID, req.RecipientEmail, req.RecipientName, amount, r.Header.Get("Idempotency-Key"), req.ConfirmMismatch)
 	if err != nil {
+		if writeResilienceError(w, err) {
+			return
+		}
 		switch {
 		case errors.Is(err, coolingoff.ErrRecipientNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "recipient not found")

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 )
 
 // PayBill validates reference, then routes the payment through the
@@ -22,6 +23,10 @@ func (s *Service) PayBill(ctx context.Context, accountID, billerID, reference st
 		return BillPayment{}, err
 	} else if ok {
 		return existing, nil
+	}
+
+	if err := s.resilienceSvc.Check(ctx, resilience.Feature("bill_payment")); err != nil {
+		return BillPayment{}, err
 	}
 
 	valid, _, err := s.ValidateReference(ctx, billerID, reference)

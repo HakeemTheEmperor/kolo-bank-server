@@ -25,6 +25,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payee"
 	"github.com/toluwalase/kolo-bank-server/internal/payments"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 )
 
 // ErrRecipientNotFound mirrors payments.ErrRecipientNotFound — duplicated
@@ -80,18 +81,19 @@ type PendingTransfer struct {
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
-	ledgerSvc   *ledger.Service
-	paymentsSvc *payments.Service
-	identitySvc *identity.Service
-	logger      *slog.Logger
+	pool          *pgxpool.Pool
+	ledgerSvc     *ledger.Service
+	paymentsSvc   *payments.Service
+	identitySvc   *identity.Service
+	resilienceSvc *resilience.Service
+	logger        *slog.Logger
 }
 
-func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, paymentsSvc *payments.Service, identitySvc *identity.Service, logger *slog.Logger) *Service {
+func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, paymentsSvc *payments.Service, identitySvc *identity.Service, resilienceSvc *resilience.Service, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{pool: pool, ledgerSvc: ledgerSvc, paymentsSvc: paymentsSvc, identitySvc: identitySvc, logger: logger}
+	return &Service{pool: pool, ledgerSvc: ledgerSvc, paymentsSvc: paymentsSvc, identitySvc: identitySvc, resilienceSvc: resilienceSvc, logger: logger}
 }
 
 // Send resolves recipientEmail, checks the typed name against the account
@@ -99,6 +101,10 @@ func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, paymentsSvc *paym
 // risk) or places a cancellable hold (high risk: first-time payee, a
 // large amount, or any payee-name mismatch).
 func (s *Service) Send(ctx context.Context, fromAccountID, fromIdentityID, recipientEmail, typedRecipientName string, amount ledger.Money, idempotencyKey string, confirmMismatch bool) (SendResult, error) {
+	if err := s.resilienceSvc.Check(ctx, resilience.Feature("transfer")); err != nil {
+		return SendResult{}, err
+	}
+
 	recipient, err := s.identitySvc.GetByEmail(ctx, recipientEmail)
 	if err != nil {
 		if errors.Is(err, identity.ErrNotFound) {

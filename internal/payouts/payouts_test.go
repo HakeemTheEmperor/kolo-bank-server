@@ -13,6 +13,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payouts"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
@@ -51,10 +52,16 @@ func newMerchantWithFundedAccount(t *testing.T, pool *pgxpool.Pool, ledgerSvc *l
 }
 
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *externalpayments.Service, *payouts.Service) {
+	ledgerSvc, externalSvc, svc, _ := newServicesWithResilience(pool)
+	return ledgerSvc, externalSvc, svc
+}
+
+func newServicesWithResilience(pool *pgxpool.Pool) (*ledger.Service, *externalpayments.Service, *payouts.Service, *resilience.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
-	return ledgerSvc, externalSvc, payouts.NewService(pool, externalSvc, registry)
+	resilienceSvc := resilience.NewService(pool)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), resilienceSvc, nil)
+	return ledgerSvc, externalSvc, payouts.NewService(pool, externalSvc, registry, resilienceSvc), resilienceSvc
 }
 
 func TestPayoutSucceeds(t *testing.T) {
@@ -126,5 +133,23 @@ func TestPayoutListReturnsMerchantPayouts(t *testing.T) {
 	}
 	if len(list) != 2 {
 		t.Fatalf("payout count = %d, want 2", len(list))
+	}
+}
+
+func TestCreate_BlockedByMerchantKillSwitch(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ledgerSvc, _, payoutsSvc, resilienceSvc := newServicesWithResilience(pool)
+	ctx := context.Background()
+
+	merchantID := newMerchantWithFundedAccount(t, pool, ledgerSvc, 100_000_00)
+
+	if _, err := resilienceSvc.SetKillSwitch(ctx, resilience.Merchant(merchantID), false, "under review", "test"); err != nil {
+		t.Fatalf("SetKillSwitch: %v", err)
+	}
+
+	_, err := payoutsSvc.Create(ctx, merchantID, apikeys.ModeLive, "instant", "r1", mustMoney(t, 1_000_00), testsupport.RandomKey())
+	var killErr *resilience.ErrKillSwitchTripped
+	if !errors.As(err, &killErr) {
+		t.Fatalf("create payout for a killed merchant: got %v, want *ErrKillSwitchTripped", err)
 	}
 }

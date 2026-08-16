@@ -1,6 +1,7 @@
 package publicapi
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net"
 	"net/http"
@@ -141,6 +142,26 @@ func sessionAuth(svc *auth.Service) func(http.Handler) http.Handler {
 			}
 
 			next.ServeHTTP(w, r.WithContext(withMerchantID(r.Context(), sess.IdentityID)))
+		})
+	}
+}
+
+// adminAuth authenticates the resilience admin surface (docs/banking-backend-spec.md
+// §Phase 10) via a single static bearer token from config — there's no
+// admin-user/session system in this project, so this is the simplest
+// workable scheme, mirroring apiKeyAuth/sessionAuth's bearer shape. An
+// empty adminKey (the unconfigured default) means the surface refuses
+// every request rather than accepting anything — "unset" must mean
+// "unreachable," never "open."
+func adminAuth(adminKey string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			raw, ok := bearerToken(r)
+			if !ok || adminKey == "" || subtle.ConstantTimeCompare([]byte(raw), []byte(adminKey)) != 1 {
+				writeError(w, http.StatusUnauthorized, "unauthorized", "invalid admin credentials")
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

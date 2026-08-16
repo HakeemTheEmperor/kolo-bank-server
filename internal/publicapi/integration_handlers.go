@@ -91,6 +91,9 @@ func (a *api) createCharge(w http.ResponseWriter, r *http.Request) {
 
 	ch, err := a.deps.Charges.Create(r.Context(), key.MerchantID, key.Mode, req.TokenID, amount, r.Header.Get("Idempotency-Key"))
 	if err != nil {
+		if writeResilienceError(w, err) {
+			return
+		}
 		if errors.Is(err, charges.ErrNoSettlementAccount) {
 			writeError(w, http.StatusUnprocessableEntity, "no_settlement_account", "merchant has no open settlement account for this currency")
 			return
@@ -179,6 +182,9 @@ func (a *api) createPayout(w http.ResponseWriter, r *http.Request) {
 
 	p, err := a.deps.Payouts.Create(r.Context(), key.MerchantID, key.Mode, req.Rail, req.RecipientRef, amount, r.Header.Get("Idempotency-Key"))
 	if err != nil {
+		if writeResilienceError(w, err) {
+			return
+		}
 		switch {
 		case errors.Is(err, payouts.ErrUnknownRail):
 			writeError(w, http.StatusBadRequest, "unknown_rail", "unrecognized rail")

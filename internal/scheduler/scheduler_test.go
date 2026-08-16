@@ -11,6 +11,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payments"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/scheduler"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
@@ -52,7 +53,7 @@ func newFundedAccount(t *testing.T, pool *pgxpool.Pool, ledgerSvc *ledger.Servic
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *scheduler.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	identitySvc := identity.NewService(pool)
-	paymentsSvc := payments.NewService(pool, ledgerSvc, identitySvc)
+	paymentsSvc := payments.NewService(pool, ledgerSvc, identitySvc, resilience.NewService(pool))
 	return ledgerSvc, scheduler.NewService(pool, paymentsSvc, nil)
 }
 

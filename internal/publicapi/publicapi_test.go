@@ -28,6 +28,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/publicapi"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
 	"github.com/toluwalase/kolo-bank-server/internal/recovery"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/secrets"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
@@ -36,13 +37,14 @@ import (
 )
 
 type testEnv struct {
-	handler     http.Handler
-	pool        *pgxpool.Pool
-	ledgerSvc   *ledger.Service
-	externalSvc *externalpayments.Service
-	apiKeysSvc  *apikeys.Service
-	authSvc     *auth.Service
-	cardsSvc    *cards.Service
+	handler       http.Handler
+	pool          *pgxpool.Pool
+	ledgerSvc     *ledger.Service
+	externalSvc   *externalpayments.Service
+	apiKeysSvc    *apikeys.Service
+	authSvc       *auth.Service
+	cardsSvc      *cards.Service
+	resilienceSvc *resilience.Service
 }
 
 func newTestEnv(t *testing.T) testEnv {
@@ -52,37 +54,41 @@ func newTestEnv(t *testing.T) testEnv {
 	identitySvc := identity.NewService(pool)
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
+	resilienceSvc := resilience.NewService(pool)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), resilienceSvc, nil)
 	kp := secrets.NewLocalKeyProvider()
 	authSvc := auth.NewService(pool, identitySvc, kp)
-	paymentsSvc := payments.NewService(pool, ledgerSvc, identitySvc)
+	paymentsSvc := payments.NewService(pool, ledgerSvc, identitySvc, resilienceSvc)
 
 	deps := publicapi.Deps{
 		ApiKeys:       apikeys.NewService(pool),
 		Auth:          authSvc,
 		Identity:      identitySvc,
 		Tokens:        tokens.NewService(pool),
-		Charges:       charges.NewService(pool, tokens.NewService(pool), externalSvc),
-		Payouts:       payouts.NewService(pool, externalSvc, registry),
+		Charges:       charges.NewService(pool, tokens.NewService(pool), externalSvc, resilienceSvc),
+		Payouts:       payouts.NewService(pool, externalSvc, registry, resilienceSvc),
 		Checkout:      checkout.NewService(pool),
 		Webhooks:      webhooks.NewService(pool, kp),
-		CoolingOff:    coolingoff.NewService(pool, ledgerSvc, paymentsSvc, identitySvc, nil),
+		CoolingOff:    coolingoff.NewService(pool, ledgerSvc, paymentsSvc, identitySvc, resilienceSvc, nil),
 		Consent:       consent.NewService(pool),
 		Disputes:      disputes.NewService(pool, nil),
 		Recovery:      recovery.NewService(pool, identitySvc, authSvc, kyc.NewStubProvider()),
-		Cards:         cards.NewService(pool, ledgerSvc),
+		Cards:         cards.NewService(pool, ledgerSvc, resilienceSvc),
+		Resilience:    resilienceSvc,
+		AdminAPIKey:   "test-admin-key",
 		Pool:          pool,
 		PublicBaseURL: "https://api.kolobank.example",
 	}
 
 	return testEnv{
-		handler:     publicapi.New(deps),
-		pool:        pool,
-		ledgerSvc:   ledgerSvc,
-		externalSvc: externalSvc,
-		apiKeysSvc:  deps.ApiKeys,
-		authSvc:     deps.Auth,
-		cardsSvc:    deps.Cards,
+		handler:       publicapi.New(deps),
+		pool:          pool,
+		ledgerSvc:     ledgerSvc,
+		externalSvc:   externalSvc,
+		apiKeysSvc:    deps.ApiKeys,
+		authSvc:       deps.Auth,
+		cardsSvc:      deps.Cards,
+		resilienceSvc: resilienceSvc,
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 )
 
 var (
@@ -48,13 +49,14 @@ type Payout struct {
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
-	externalSvc *externalpayments.Service
-	registry    *rails.Registry
+	pool          *pgxpool.Pool
+	externalSvc   *externalpayments.Service
+	registry      *rails.Registry
+	resilienceSvc *resilience.Service
 }
 
-func NewService(pool *pgxpool.Pool, externalSvc *externalpayments.Service, registry *rails.Registry) *Service {
-	return &Service{pool: pool, externalSvc: externalSvc, registry: registry}
+func NewService(pool *pgxpool.Pool, externalSvc *externalpayments.Service, registry *rails.Registry, resilienceSvc *resilience.Service) *Service {
+	return &Service{pool: pool, externalSvc: externalSvc, registry: registry, resilienceSvc: resilienceSvc}
 }
 
 // Create pays recipientRef via railName from the merchant's settlement
@@ -64,6 +66,10 @@ func (s *Service) Create(ctx context.Context, merchantID string, mode apikeys.Mo
 		return Payout{}, err
 	} else if ok {
 		return existing, nil
+	}
+
+	if err := s.resilienceSvc.Check(ctx, resilience.Feature("payout"), resilience.Merchant(merchantID)); err != nil {
+		return Payout{}, err
 	}
 
 	if _, err := s.registry.Get(railName); err != nil {

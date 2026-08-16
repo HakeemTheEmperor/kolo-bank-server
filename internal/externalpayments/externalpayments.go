@@ -23,6 +23,7 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 )
 
@@ -64,21 +65,22 @@ type OutboundItem struct {
 }
 
 type Service struct {
-	pool      *pgxpool.Pool
-	ledgerSvc *ledger.Service
-	registry  *rails.Registry
-	riskSvc   *risk.Service
-	logger    *slog.Logger
+	pool          *pgxpool.Pool
+	ledgerSvc     *ledger.Service
+	registry      *rails.Registry
+	riskSvc       *risk.Service
+	resilienceSvc *resilience.Service
+	logger        *slog.Logger
 }
 
 // riskSvc gates real-time hold/block (docs/banking-backend-spec.md §3.8,
 // Phase 7): ProcessPending assesses each claimed row through it before
 // finalize, the same choke point both charges and payouts already share.
-func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, registry *rails.Registry, riskSvc *risk.Service, logger *slog.Logger) *Service {
+func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, registry *rails.Registry, riskSvc *risk.Service, resilienceSvc *resilience.Service, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{pool: pool, ledgerSvc: ledgerSvc, registry: registry, riskSvc: riskSvc, logger: logger}
+	return &Service{pool: pool, ledgerSvc: ledgerSvc, registry: registry, riskSvc: riskSvc, resilienceSvc: resilienceSvc, logger: logger}
 }
 
 // SendOutbound reserves amount via a hold and queues it for processing by
@@ -112,10 +114,17 @@ func (s *Service) CreateBatch(ctx context.Context, items []OutboundItem) ([]Exte
 }
 
 func (s *Service) send(ctx context.Context, direction rails.Direction, accountID, railName, counterpartyRef string, amount ledger.Money, idempotencyKey string, batchID *string) (ExternalTransfer, error) {
+	// Idempotency-key replay first: a retry of an already-accepted request
+	// just returns what already happened, and must not start failing
+	// because a kill switch was flipped afterward.
 	if existing, ok, err := s.getByIdempotencyKey(ctx, idempotencyKey); err != nil {
 		return ExternalTransfer{}, err
 	} else if ok {
 		return existing, nil
+	}
+
+	if err := s.resilienceSvc.Check(ctx, resilience.Feature("external_payment"), resilience.Integration(railName)); err != nil {
+		return ExternalTransfer{}, err
 	}
 
 	var holdID *string

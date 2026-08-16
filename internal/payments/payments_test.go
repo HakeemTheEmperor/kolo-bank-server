@@ -10,6 +10,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payments"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
 
@@ -46,9 +47,15 @@ func newTierAccount(t *testing.T, pool *pgxpool.Pool, ledgerSvc *ledger.Service,
 }
 
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *payments.Service) {
+	ledgerSvc, svc, _ := newServicesWithResilience(pool)
+	return ledgerSvc, svc
+}
+
+func newServicesWithResilience(pool *pgxpool.Pool) (*ledger.Service, *payments.Service, *resilience.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	identitySvc := identity.NewService(pool)
-	return ledgerSvc, payments.NewService(pool, ledgerSvc, identitySvc)
+	resilienceSvc := resilience.NewService(pool)
+	return ledgerSvc, payments.NewService(pool, ledgerSvc, identitySvc, resilienceSvc), resilienceSvc
 }
 
 func TestTransferWithinLimitsSucceeds(t *testing.T) {
@@ -166,5 +173,58 @@ func TestSendToRecipientEmailUnknownRecipient(t *testing.T) {
 	_, err := paymentsSvc.SendToRecipientEmail(ctx, fromAcc, "nobody-"+testsupport.RandomKey()+"@example.com", mustMoney(t, 1_000_00), testsupport.RandomKey())
 	if !errors.Is(err, payments.ErrRecipientNotFound) {
 		t.Fatalf("send to unknown recipient: got %v, want ErrRecipientNotFound", err)
+	}
+}
+
+func TestTransfer_BlockedByReadOnly(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ledgerSvc, paymentsSvc, resilienceSvc := newServicesWithResilience(pool)
+	ctx := context.Background()
+
+	_, _, fromAcc := newTierAccount(t, pool, ledgerSvc, 2)
+	_, _, toAcc := newTierAccount(t, pool, ledgerSvc, 2)
+	if _, err := ledgerSvc.Credit(ctx, fromAcc, mustMoney(t, 100_000_00), testsupport.RandomKey()); err != nil {
+		t.Fatalf("seed credit: %v", err)
+	}
+
+	if _, err := resilienceSvc.SetReadOnly(ctx, true, "drill", "test"); err != nil {
+		t.Fatalf("SetReadOnly(true): %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := resilienceSvc.SetReadOnly(context.Background(), false, "", "test-cleanup"); err != nil {
+			t.Errorf("cleanup SetReadOnly(false): %v", err)
+		}
+	})
+
+	_, err := paymentsSvc.Transfer(ctx, fromAcc, toAcc, mustMoney(t, 10_000_00), testsupport.RandomKey())
+	if !errors.Is(err, resilience.ErrReadOnly) {
+		t.Fatalf("transfer during read-only mode: got %v, want ErrReadOnly", err)
+	}
+}
+
+func TestTransfer_BlockedByFeatureKillSwitch(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ledgerSvc, paymentsSvc, resilienceSvc := newServicesWithResilience(pool)
+	ctx := context.Background()
+
+	_, _, fromAcc := newTierAccount(t, pool, ledgerSvc, 2)
+	_, _, toAcc := newTierAccount(t, pool, ledgerSvc, 2)
+	if _, err := ledgerSvc.Credit(ctx, fromAcc, mustMoney(t, 100_000_00), testsupport.RandomKey()); err != nil {
+		t.Fatalf("seed credit: %v", err)
+	}
+
+	if _, err := resilienceSvc.SetKillSwitch(ctx, resilience.Feature("transfer"), false, "incident", "test"); err != nil {
+		t.Fatalf("SetKillSwitch: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := resilienceSvc.SetKillSwitch(context.Background(), resilience.Feature("transfer"), true, "", "test-cleanup"); err != nil {
+			t.Errorf("cleanup SetKillSwitch: %v", err)
+		}
+	})
+
+	_, err := paymentsSvc.Transfer(ctx, fromAcc, toAcc, mustMoney(t, 10_000_00), testsupport.RandomKey())
+	var killErr *resilience.ErrKillSwitchTripped
+	if !errors.As(err, &killErr) {
+		t.Fatalf("transfer while feature:transfer is tripped: got %v, want *ErrKillSwitchTripped", err)
 	}
 }

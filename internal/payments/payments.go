@@ -16,6 +16,7 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 )
 
 // ErrLimitExceeded is returned when a transfer would exceed the sender's
@@ -44,18 +45,22 @@ var tierLimits = map[int]Limits{
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
-	ledgerSvc   *ledger.Service
-	identitySvc *identity.Service
+	pool          *pgxpool.Pool
+	ledgerSvc     *ledger.Service
+	identitySvc   *identity.Service
+	resilienceSvc *resilience.Service
 }
 
-func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, identitySvc *identity.Service) *Service {
-	return &Service{pool: pool, ledgerSvc: ledgerSvc, identitySvc: identitySvc}
+func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, identitySvc *identity.Service, resilienceSvc *resilience.Service) *Service {
+	return &Service{pool: pool, ledgerSvc: ledgerSvc, identitySvc: identitySvc, resilienceSvc: resilienceSvc}
 }
 
 // Transfer moves funds between two accounts, enforcing the sending
 // identity's KYC-tier limits before delegating to the ledger.
 func (s *Service) Transfer(ctx context.Context, fromAccountID, toAccountID string, amount ledger.Money, idempotencyKey string) (ledger.Transaction, error) {
+	if err := s.resilienceSvc.Check(ctx, resilience.Feature("transfer")); err != nil {
+		return ledger.Transaction{}, err
+	}
 	if err := s.checkLimits(ctx, fromAccountID, amount.Minor); err != nil {
 		return ledger.Transaction{}, err
 	}
@@ -88,8 +93,14 @@ func (s *Service) SendToRecipientEmail(ctx context.Context, fromAccountID, recip
 	return s.Transfer(ctx, fromAccountID, toAccountID, amount, idempotencyKey)
 }
 
-// Reverse reverses a previously posted transaction.
+// Reverse reverses a previously posted transaction. Guarded like a new
+// transfer, not treated as de-risking, since a caller-initiated reversal
+// (e.g. dispute-driven funds recovery) is itself a new debit against
+// whichever account is being reversed into.
 func (s *Service) Reverse(ctx context.Context, transactionID, idempotencyKey string) (ledger.Transaction, error) {
+	if err := s.resilienceSvc.Check(ctx, resilience.Feature("reversal")); err != nil {
+		return ledger.Transaction{}, err
+	}
 	return s.ledgerSvc.ReverseTransaction(ctx, transactionID, idempotencyKey)
 }
 

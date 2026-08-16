@@ -80,6 +80,7 @@ Inside `kolo-bank-server/`:
 cmd/
   api/main.go        Entry point: wires every service together, starts the HTTP
                       server and all background tickers, handles graceful shutdown.
+  loadtest/main.go   Standalone load/soak-test driver (docs/load-testing.md).
 internal/             All application code. Nothing here is importable outside
                       this module (Go's internal/ convention) — see Package guide.
 db/
@@ -88,6 +89,11 @@ db/
 docs/
   api-reference.html  The full API reference — also served live at GET /docs
                       (embedded into the binary via docs/docs.go's go:embed).
+  dr-runbook.md       Disaster-recovery backup/restore/failover procedure.
+  load-testing.md     Load/soak/chaos testing targets and how to run them.
+scripts/
+  dr-drill.sh         Automated DR drill (make dr-drill).
+  chaos-drill.sh      Automated chaos drill (make chaos-drill).
 Dockerfile            Multi-stage build: compile in golang:1.25-bookworm,
                       ship a static binary on gcr.io/distroless/static-debian12.
 docker-compose.yml    Local dev stack: postgres + api.
@@ -199,6 +205,12 @@ Grouped roughly by where each package sits in the request flow above. Each packa
 | `internal/cards` | Card issuing (virtual/physical), controls (freeze, per-card limits, MCC blocks), authorization/settlement against a stubbed network (`NETWORKDECLINE` marker), 3-D Secure, and chargebacks. |
 | `internal/disputes` | Dispute and case management for back-office investigation across all dispute-eligible source types (charges, payouts, external transfers, cooling-off transfers, card authorizations). |
 
+### Resilience
+
+| Package | What it does |
+|---|---|
+| `internal/resilience` | Kill switches (per-integration, per-merchant, per-feature) and system-wide read-only mode. `Service.Check` is called at the top of every money-*initiating* service method (transfers, external payments, card authorization, charges, payouts, bill payments) — never on *resolving* one already approved (cancel, settle, void, chargeback), and never inside `internal/ledger` itself. See the package doc for the full rule and call-site list. Admin-only HTTP surface at `/v1/admin/resilience/*` (its own static-bearer-token auth — see [API surface](#api-surface)). |
+
 ### Cross-cutting infrastructure
 
 | Package | What it does |
@@ -254,6 +266,7 @@ All configuration is environment variables, loaded once at startup by `internal/
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | *(unset)* | OpenTelemetry collector endpoint; empty disables export (stdout fallback). |
 | `PUBLIC_BASE_URL` | no | `http://localhost:8080` | Used to build fully-qualified URLs returned to API clients (e.g. checkout redirect URLs). |
 | `KOLO_KEY_<name>` | yes, per key in use | — | Base64-encoded 32-byte key consumed by `internal/secrets.LocalKeyProvider` (e.g. `KOLO_KEY_ledger-signing`). Dev/test only — see the package's doc comment before using this pattern anywhere near production. |
+| `ADMIN_API_KEY` | no | *(empty)* | Static bearer token for the `/v1/admin/resilience/*` surface (kill switches, read-only mode). Empty means that surface is unreachable, not open — see `internal/resilience`. |
 
 `docker-compose.yml` sets sane local-dev values for all of these already — you generally don't need to touch environment variables to get started.
 
@@ -265,9 +278,14 @@ All configuration is environment variables, loaded once at startup by `internal/
 make test
 ```
 
-runs `go test ./...` inside a throwaway Go container, against a real Postgres brought up via `docker compose up -d postgres` — not mocked. This is deliberate: constraints, triggers, and transactional behavior are part of the correctness surface here, and mocking the database out would let real bugs (a missing `CHECK`, a broken trigger, a race under `FOR UPDATE`) slip through green tests. `internal/testsupport.RequireTestPool` is the shared harness every package's tests use to get a migrated pool; it skips (not fails) if `DATABASE_URL` isn't set, so `go test ./...` degrades gracefully outside the container.
+runs `go test -p 1 ./...` inside a throwaway Go container, against a real Postgres brought up via `docker compose up -d postgres` — not mocked. This is deliberate: constraints, triggers, and transactional behavior are part of the correctness surface here, and mocking the database out would let real bugs (a missing `CHECK`, a broken trigger, a race under `FOR UPDATE`) slip through green tests. `internal/testsupport.RequireTestPool` is the shared harness every package's tests use to get a migrated pool; it skips (not fails) if `DATABASE_URL` isn't set, so `go test ./...` degrades gracefully outside the container. The `-p 1` forces package test binaries to run one at a time rather than in parallel — `internal/resilience`'s kill switches and read-only mode are genuine global singleton state in that one shared database, and several packages' tests deliberately flip real production scopes to prove a guard works, which is only safe if no other package's tests are concurrently relying on that scope being clear.
 
 CI (`.github/workflows/ci.yml`) runs `go vet`, the full test suite against a Postgres service container, and a Docker image build on every push and pull request.
+
+Beyond `go test`, two more verification tools live in `scripts/` (see `docs/dr-runbook.md` and `docs/load-testing.md`):
+- `make dr-drill` — a real backup/restore/failover drill against the running stack, reporting measured RTO.
+- `make chaos-drill` — runs `make loadtest` in the background while killing and restarting the `api` and `postgres` containers mid-flight, then asserts the system recovered with no stuck transactions and the double-entry invariant intact.
+- `make loadtest` — a standalone load/soak test (`cmd/loadtest`) against the running API, reporting p50/p95/p99 latency and error rate.
 
 When adding a feature, match the existing test shape for that layer:
 - **Service-layer tests** (`internal/<pkg>/*_test.go`) exercise the service directly against `testsupport.RequireTestPool`, including concurrent/idempotency-retry cases where relevant.
@@ -292,6 +310,7 @@ The full route list is the authoritative source (`internal/publicapi/publicapi.g
 - **`/v1/dashboard/*`** — merchant dashboard actions (API-key and webhook-endpoint management), authenticated by a login session.
 - **`/v1/me/*`** — customer-facing actions (transfers, authorizations, disputes, cards), authenticated by the same session mechanism as the dashboard — any identity, not just merchants, logs in through it.
 - **`/v1/recovery/*`** — deliberately public (pre-authentication, by definition), IP-rate-limited instead of key-rate-limited.
+- **`/v1/admin/resilience/*`** — kill switches and read-only mode (`internal/resilience`), authenticated by a single static `Authorization: Bearer <ADMIN_API_KEY>` rather than the session/API-key schemes above — there's no admin-user system in this project. Not exposed to merchants or customers.
 
 Every mutating route requires an `Idempotency-Key` header (`requireIdempotencyKey` middleware) — retried requests with the same key return the original result rather than double-processing.
 
@@ -311,6 +330,9 @@ This project is **Docker-only**: Go is never invoked on the host, in any environ
 | `make migrate` | Apply all pending migrations. |
 | `make migrate-down` | Roll back one migration. |
 | `make test` | Run the full test suite against a real, migrated Postgres. |
+| `make dr-drill` | Backup/restore/failover drill against the running stack (`docs/dr-runbook.md`). Host-run — orchestrates `docker compose` itself. |
+| `make chaos-drill` | Kill/restart `api` and `postgres` mid-load and assert clean recovery (`docs/load-testing.md`). Host-run. |
+| `make loadtest` | Load/soak test against the running API, reporting p50/p95/p99 latency and error rate (`docs/load-testing.md`). |
 | `make tidy` | Run `go mod tidy` in a throwaway container. |
 
 Filesystem placement affects Docker dev speed on Windows — see `../docs/banking-backend-spec.md` §9 for the Windows-filesystem-vs-WSL-native trade-off if hot-reload/rebuild latency becomes a problem; it doesn't affect correctness, only inner-loop speed.
@@ -328,6 +350,7 @@ This is a solo/learning project built incrementally, phase by phase, against `..
    - Background jobs: the `runX(ctx, ...deps, logger)` ticker shape in `cmd/api/main.go` — see [How a request flows through the system](#how-a-request-flows-through-the-system).
    - Simulated external failures: the marker-string convention — see the table in [Package guide](#package-guide) — rather than a bespoke mock/flag mechanism.
    - HTTP handlers: ownership checks return 404, never 403, so a non-owner can't distinguish "not yours" from "doesn't exist."
+   - New money-*initiating* service methods call `resilienceSvc.Check(ctx, ...)` first, the same way `payments.Transfer` and `cards.Authorize` do — but methods that only *resolve* work already approved (cancel, void, settle, chargeback) deliberately don't. See `internal/resilience`'s package doc for the full rule.
    - New services are wired the same way every existing one is: constructed once in `cmd/api/main.go`, added to `publicapi.Deps`, passed into `publicapi.New(Deps{...})`, consumed as `a.deps.X` in handlers.
 4. **Every mutating operation needs an idempotency story.** New endpoints that create or move money must accept and honor `Idempotency-Key` the same way existing ones do (`UNIQUE(scope, idempotency_key)` constraint + "return existing row on retry" service-layer logic).
 5. **Tests run against real Postgres, not mocks** — see [Testing](#testing). New features need both service-layer and (if HTTP-exposed) handler-layer tests following the existing patterns, including at least one deliberately-adversarial case (insufficient balance, wrong owner, expired/invalid input) alongside the happy path.

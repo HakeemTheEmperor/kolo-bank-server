@@ -19,6 +19,7 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 )
 
 // invalidMarker in a reference deterministically fails validation, the
@@ -72,12 +73,13 @@ type RecurringBillPayment struct {
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
-	externalSvc *externalpayments.Service
+	pool          *pgxpool.Pool
+	externalSvc   *externalpayments.Service
+	resilienceSvc *resilience.Service
 }
 
-func NewService(pool *pgxpool.Pool, externalSvc *externalpayments.Service) *Service {
-	return &Service{pool: pool, externalSvc: externalSvc}
+func NewService(pool *pgxpool.Pool, externalSvc *externalpayments.Service, resilienceSvc *resilience.Service) *Service {
+	return &Service{pool: pool, externalSvc: externalSvc, resilienceSvc: resilienceSvc}
 }
 
 // ValidateReference is a stub validator: any reference containing

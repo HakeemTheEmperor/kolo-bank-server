@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 )
 
 var (
@@ -21,13 +22,13 @@ var (
 type AuthStatus string
 
 const (
-	AuthStatusPending      AuthStatus = "pending"
-	AuthStatusRequires3DS  AuthStatus = "requires_3ds"
-	AuthStatusApproved     AuthStatus = "approved"
-	AuthStatusDeclined     AuthStatus = "declined"
-	AuthStatusSettled      AuthStatus = "settled"
-	AuthStatusVoided       AuthStatus = "voided"
-	AuthStatusChargedBack  AuthStatus = "charged_back"
+	AuthStatusPending     AuthStatus = "pending"
+	AuthStatusRequires3DS AuthStatus = "requires_3ds"
+	AuthStatusApproved    AuthStatus = "approved"
+	AuthStatusDeclined    AuthStatus = "declined"
+	AuthStatusSettled     AuthStatus = "settled"
+	AuthStatusVoided      AuthStatus = "voided"
+	AuthStatusChargedBack AuthStatus = "charged_back"
 )
 
 type Authorization struct {
@@ -55,6 +56,10 @@ func (s *Service) Authorize(ctx context.Context, cardID, merchantName, mcc strin
 		return Authorization{}, err
 	} else if ok {
 		return existing, nil
+	}
+
+	if err := s.resilienceSvc.Check(ctx, resilience.Feature("card_authorize")); err != nil {
+		return Authorization{}, err
 	}
 
 	card, err := s.Get(ctx, cardID)

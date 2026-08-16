@@ -24,6 +24,7 @@ services:
       DATABASE_URL: "postgres://kolo:kolo@postgres:5432/kolo_bank?sslmode=disable"
       LOG_LEVEL: "debug"
       KOLO_KEY_ledger-signing: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA=="
+      ADMIN_API_KEY: "dev-admin-key"
     ports:
       - "8080:8080"
     depends_on:

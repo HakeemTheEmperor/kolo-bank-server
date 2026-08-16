@@ -3,6 +3,7 @@
 /out/
 *.exe
 *.test
+/loadtest
 
 # Local env files
 .env

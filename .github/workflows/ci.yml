@@ -32,7 +32,10 @@ jobs:
         run: go vet ./...
 
       - name: go test
-        run: go test ./...
+        # -p 1: internal/resilience's kill switches and read-only mode are
+        # real global singleton state in the one shared test database —
+        # see the Makefile's test target for the full rationale.
+        run: go test -p 1 ./...
         env:
           DATABASE_URL: postgres://kolo:kolo@localhost:5432/kolo_bank?sslmode=disable
 

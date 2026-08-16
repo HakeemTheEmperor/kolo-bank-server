@@ -13,6 +13,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 	"github.com/toluwalase/kolo-bank-server/internal/tokens"
@@ -46,10 +47,16 @@ func newMerchantWithAccount(t *testing.T, pool *pgxpool.Pool, ledgerSvc *ledger.
 }
 
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *tokens.Service, *externalpayments.Service, *charges.Service) {
+	ledgerSvc, tokensSvc, externalSvc, svc, _ := newServicesWithResilience(pool)
+	return ledgerSvc, tokensSvc, externalSvc, svc
+}
+
+func newServicesWithResilience(pool *pgxpool.Pool) (*ledger.Service, *tokens.Service, *externalpayments.Service, *charges.Service, *resilience.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	tokensSvc := tokens.NewService(pool)
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
-	return ledgerSvc, tokensSvc, externalSvc, charges.NewService(pool, tokensSvc, externalSvc)
+	resilienceSvc := resilience.NewService(pool)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), resilienceSvc, nil)
+	return ledgerSvc, tokensSvc, externalSvc, charges.NewService(pool, tokensSvc, externalSvc, resilienceSvc), resilienceSvc
 }
 
 func TestChargeSucceeds(t *testing.T) {
@@ -152,5 +159,27 @@ func TestChargeWithoutSettlementAccountFails(t *testing.T) {
 	_, err = chargesSvc.Create(ctx, merchantID, apikeys.ModeSandbox, tok.ID, mustMoney(t, 5_000_00), testsupport.RandomKey())
 	if !errors.Is(err, charges.ErrNoSettlementAccount) {
 		t.Fatalf("create charge without settlement account: got %v, want ErrNoSettlementAccount", err)
+	}
+}
+
+func TestCreate_BlockedByMerchantKillSwitch(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ledgerSvc, tokensSvc, _, chargesSvc, resilienceSvc := newServicesWithResilience(pool)
+	ctx := context.Background()
+
+	merchantID := newMerchantWithAccount(t, pool, ledgerSvc)
+	tok, err := tokensSvc.Create(ctx, merchantID, apikeys.ModeSandbox, "4242424242424242", testsupport.RandomKey())
+	if err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	if _, err := resilienceSvc.SetKillSwitch(ctx, resilience.Merchant(merchantID), false, "under review", "test"); err != nil {
+		t.Fatalf("SetKillSwitch: %v", err)
+	}
+
+	_, err = chargesSvc.Create(ctx, merchantID, apikeys.ModeSandbox, tok.ID, mustMoney(t, 5_000_00), testsupport.RandomKey())
+	var killErr *resilience.ErrKillSwitchTripped
+	if !errors.As(err, &killErr) {
+		t.Fatalf("create charge for a killed merchant: got %v, want *ErrKillSwitchTripped", err)
 	}
 }

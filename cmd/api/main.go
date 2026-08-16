@@ -36,6 +36,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
 	"github.com/toluwalase/kolo-bank-server/internal/reconciliation"
 	"github.com/toluwalase/kolo-bank-server/internal/recovery"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/scheduler"
 	"github.com/toluwalase/kolo-bank-server/internal/secrets"
@@ -83,21 +84,22 @@ func run() error {
 
 	identitySvc := identity.NewService(db.Pool)
 	ledgerSvc := ledger.NewService(db.Pool)
-	paymentsSvc := payments.NewService(db.Pool, ledgerSvc, identitySvc)
+	resilienceSvc := resilience.NewService(db.Pool)
+	paymentsSvc := payments.NewService(db.Pool, ledgerSvc, identitySvc, resilienceSvc)
 	schedulerSvc := scheduler.NewService(db.Pool, paymentsSvc, logger)
 
 	riskSvc := risk.NewService(db.Pool, ledgerSvc, compliance.NewStubScreener(), logger)
 
 	railRegistry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(db.Pool, ledgerSvc, railRegistry, riskSvc, logger)
-	billsSvc := bills.NewService(db.Pool, externalSvc)
+	externalSvc := externalpayments.NewService(db.Pool, ledgerSvc, railRegistry, riskSvc, resilienceSvc, logger)
+	billsSvc := bills.NewService(db.Pool, externalSvc, resilienceSvc)
 
 	keyProvider := secrets.NewLocalKeyProvider()
 	authSvc := auth.NewService(db.Pool, identitySvc, keyProvider)
 	apiKeysSvc := apikeys.NewService(db.Pool)
 	tokensSvc := tokens.NewService(db.Pool)
-	chargesSvc := charges.NewService(db.Pool, tokensSvc, externalSvc)
-	payoutsSvc := payouts.NewService(db.Pool, externalSvc, railRegistry)
+	chargesSvc := charges.NewService(db.Pool, tokensSvc, externalSvc, resilienceSvc)
+	payoutsSvc := payouts.NewService(db.Pool, externalSvc, railRegistry, resilienceSvc)
 	checkoutSvc := checkout.NewService(db.Pool)
 	webhooksSvc := webhooks.NewService(db.Pool, keyProvider)
 
@@ -105,11 +107,11 @@ func run() error {
 	settlementSvc := settlement.NewService(db.Pool, payoutsSvc, logger)
 	reconciliationSvc := reconciliation.NewService(db.Pool, logger)
 
-	coolingOffSvc := coolingoff.NewService(db.Pool, ledgerSvc, paymentsSvc, identitySvc, logger)
+	coolingOffSvc := coolingoff.NewService(db.Pool, ledgerSvc, paymentsSvc, identitySvc, resilienceSvc, logger)
 	consentSvc := consent.NewService(db.Pool)
 	disputesSvc := disputes.NewService(db.Pool, logger)
 	recoverySvc := recovery.NewService(db.Pool, identitySvc, authSvc, kyc.NewStubProvider())
-	cardsSvc := cards.NewService(db.Pool, ledgerSvc)
+	cardsSvc := cards.NewService(db.Pool, ledgerSvc, resilienceSvc)
 
 	go runScheduler(ctx, schedulerSvc, billsSvc, logger)
 	go runExternalPayments(ctx, externalSvc, logger)
@@ -132,6 +134,8 @@ func run() error {
 		Disputes:      disputesSvc,
 		Recovery:      recoverySvc,
 		Cards:         cardsSvc,
+		Resilience:    resilienceSvc,
+		AdminAPIKey:   cfg.AdminAPIKey,
 		Pool:          db.Pool,
 		Logger:        logger,
 		PublicBaseURL: cfg.PublicBaseURL,

@@ -21,6 +21,11 @@ type Config struct {
 	// PublicBaseURL is used to build fully-qualified URLs returned to API
 	// clients, e.g. checkout.Session.RedirectURL.
 	PublicBaseURL string
+	// AdminAPIKey authenticates the resilience admin surface (kill
+	// switches, read-only mode). Left empty by default — an unconfigured
+	// key means the admin surface is unreachable, not open, so this is
+	// deliberately not fail-fast like DatabaseURL.
+	AdminAPIKey string
 }
 
 // Load reads configuration from the environment. It fails fast on missing
@@ -33,6 +38,7 @@ func Load() (Config, error) {
 		OTLPEndpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		ShutdownTimeout: 10 * time.Second,
 		PublicBaseURL:   getEnv("PUBLIC_BASE_URL", "http://localhost:8080"),
+		AdminAPIKey:     getEnv("ADMIN_API_KEY", ""),
 	}
 
 	if cfg.DatabaseURL == "" {

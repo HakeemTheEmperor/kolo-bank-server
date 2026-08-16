@@ -20,6 +20,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/apikeys"
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/tokens"
 )
 
@@ -56,13 +57,14 @@ type Charge struct {
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
-	tokensSvc   *tokens.Service
-	externalSvc *externalpayments.Service
+	pool          *pgxpool.Pool
+	tokensSvc     *tokens.Service
+	externalSvc   *externalpayments.Service
+	resilienceSvc *resilience.Service
 }
 
-func NewService(pool *pgxpool.Pool, tokensSvc *tokens.Service, externalSvc *externalpayments.Service) *Service {
-	return &Service{pool: pool, tokensSvc: tokensSvc, externalSvc: externalSvc}
+func NewService(pool *pgxpool.Pool, tokensSvc *tokens.Service, externalSvc *externalpayments.Service, resilienceSvc *resilience.Service) *Service {
+	return &Service{pool: pool, tokensSvc: tokensSvc, externalSvc: externalSvc, resilienceSvc: resilienceSvc}
 }
 
 // Create charges tokenID for amount into the merchant's settlement
@@ -72,6 +74,10 @@ func (s *Service) Create(ctx context.Context, merchantID string, mode apikeys.Mo
 		return Charge{}, err
 	} else if ok {
 		return existing, nil
+	}
+
+	if err := s.resilienceSvc.Check(ctx, resilience.Feature("charge"), resilience.Merchant(merchantID)); err != nil {
+		return Charge{}, err
 	}
 
 	tok, err := s.tokensSvc.Get(ctx, tokenID)

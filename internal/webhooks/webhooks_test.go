@@ -20,6 +20,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/secrets"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
@@ -51,8 +52,8 @@ func newCompletedCharge(t *testing.T, pool *pgxpool.Pool) (merchantID string, ch
 
 	ledgerSvc := ledger.NewService(pool)
 	tokensSvc := tokens.NewService(pool)
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
-	chargesSvc := charges.NewService(pool, tokensSvc, externalSvc)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, rails.NewRegistry(), risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), resilience.NewService(pool), nil)
+	chargesSvc := charges.NewService(pool, tokensSvc, externalSvc, resilience.NewService(pool))
 
 	err := pool.QueryRow(ctx, `
 		INSERT INTO identities (kind, status, email, password_hash, legal_name)

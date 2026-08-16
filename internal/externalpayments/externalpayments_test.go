@@ -2,6 +2,7 @@ package externalpayments_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/externalpayments"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
@@ -50,9 +52,16 @@ func newFundedAccount(t *testing.T, pool *pgxpool.Pool, ledgerSvc *ledger.Servic
 }
 
 func newServices(pool *pgxpool.Pool) (*ledger.Service, *externalpayments.Service) {
+	ledgerSvc, svc, _ := newServicesWithResilience(pool)
+	return ledgerSvc, svc
+}
+
+func newServicesWithResilience(pool *pgxpool.Pool) (*ledger.Service, *externalpayments.Service, *resilience.Service) {
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	return ledgerSvc, externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
+	resilienceSvc := resilience.NewService(pool)
+	svc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), resilienceSvc, nil)
+	return ledgerSvc, svc, resilienceSvc
 }
 
 func TestOutboundSucceeds(t *testing.T) {
@@ -262,7 +271,7 @@ func TestHeldTransferIsNotClaimedUntilReleased(t *testing.T) {
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
 	riskSvc := risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil)
-	svc := externalpayments.NewService(pool, ledgerSvc, registry, riskSvc, nil)
+	svc := externalpayments.NewService(pool, ledgerSvc, registry, riskSvc, resilience.NewService(pool), nil)
 	ctx := context.Background()
 
 	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_000_00)
@@ -338,5 +347,32 @@ func TestSendOutboundIsIdempotent(t *testing.T) {
 	}
 	if bal.Pending.Minor != 5_000_00 {
 		t.Fatalf("pending = %d, want 500000 (only one hold placed)", bal.Pending.Minor)
+	}
+}
+
+func TestSendOutbound_BlockedByIntegrationKillSwitch(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ledgerSvc, svc, resilienceSvc := newServicesWithResilience(pool)
+	ctx := context.Background()
+
+	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_00)
+
+	rail := "test-rail-" + testsupport.RandomKey()
+	if _, err := resilienceSvc.SetKillSwitch(ctx, resilience.Integration(rail), false, "rail outage", "test"); err != nil {
+		t.Fatalf("SetKillSwitch: %v", err)
+	}
+
+	_, err := svc.SendOutbound(ctx, acc, rail, "acct-999", mustMoney(t, 5_000_00), testsupport.RandomKey())
+	var killErr *resilience.ErrKillSwitchTripped
+	if !errors.As(err, &killErr) {
+		t.Fatalf("send outbound on a tripped rail: got %v, want *ErrKillSwitchTripped", err)
+	}
+
+	bal, err := ledgerSvc.GetBalance(ctx, acc)
+	if err != nil {
+		t.Fatalf("get balance: %v", err)
+	}
+	if bal.Pending.Minor != 0 || bal.Available.Minor != 100_000_00 {
+		t.Fatalf("balance after blocked send: pending=%d available=%d, want 0/10000000 (no hold placed)", bal.Pending.Minor, bal.Available.Minor)
 	}
 }

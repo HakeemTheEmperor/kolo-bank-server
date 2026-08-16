@@ -17,6 +17,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/payouts"
 	"github.com/toluwalase/kolo-bank-server/internal/recovery"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/tokens"
 	"github.com/toluwalase/kolo-bank-server/internal/webhooks"
 )
@@ -45,6 +46,8 @@ type Deps struct {
 	Disputes      *disputes.Service
 	Recovery      *recovery.Service
 	Cards         *cards.Service
+	Resilience    *resilience.Service
+	AdminAPIKey   string
 	Pool          *pgxpool.Pool
 	Logger        *slog.Logger
 	PublicBaseURL string
@@ -119,6 +122,18 @@ func New(deps Deps) http.Handler {
 	mux.Handle("PUT /v1/me/cards/{id}/limits", withSessionAuth(http.HandlerFunc(a.setCardLimits)))
 	mux.Handle("GET /v1/me/cards/{id}/authorizations", withSessionAuth(http.HandlerFunc(a.listCardAuthorizations)))
 	mux.Handle("POST /v1/me/cards/authorizations/{id}/3ds", withSessionAuth(http.HandlerFunc(a.completeCard3DS)))
+
+	// Resilience admin surface (docs/banking-backend-spec.md §Phase 10) —
+	// kill switches and read-only mode, authenticated by a single static
+	// admin key rather than the session/API-key schemes above, since there
+	// is no admin-user system in this project (see adminAuth's doc
+	// comment). Not exposed to merchants or customers at all.
+	withAdminAuth := adminAuth(deps.AdminAPIKey)
+	mux.Handle("GET /v1/admin/resilience", withAdminAuth(http.HandlerFunc(a.getResilienceState)))
+	mux.Handle("GET /v1/admin/resilience/kill-switches", withAdminAuth(http.HandlerFunc(a.listKillSwitches)))
+	mux.Handle("PUT /v1/admin/resilience/kill-switches/{scopeType}/{scopeValue}", withAdminAuth(http.HandlerFunc(a.setKillSwitch)))
+	mux.Handle("POST /v1/admin/resilience/read-only/enter", withAdminAuth(http.HandlerFunc(a.enterReadOnly)))
+	mux.Handle("POST /v1/admin/resilience/read-only/exit", withAdminAuth(http.HandlerFunc(a.exitReadOnly)))
 
 	// Account recovery — deliberately public; see recovery_handlers.go.
 	recoveryLimiter := newRateLimiter(0.5, 5)

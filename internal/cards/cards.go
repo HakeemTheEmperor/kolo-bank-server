@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 )
 
 var (
@@ -56,9 +57,9 @@ type Card struct {
 }
 
 type Limits struct {
-	DailyLimitMinor         int64
+	DailyLimitMinor          int64
 	PerTransactionLimitMinor int64
-	BlockedMCCs             []string
+	BlockedMCCs              []string
 }
 
 // defaultLimits are conservative starting limits a cardholder can raise
@@ -70,12 +71,13 @@ var defaultLimits = Limits{
 }
 
 type Service struct {
-	pool      *pgxpool.Pool
-	ledgerSvc *ledger.Service
+	pool          *pgxpool.Pool
+	ledgerSvc     *ledger.Service
+	resilienceSvc *resilience.Service
 }
 
-func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service) *Service {
-	return &Service{pool: pool, ledgerSvc: ledgerSvc}
+func NewService(pool *pgxpool.Pool, ledgerSvc *ledger.Service, resilienceSvc *resilience.Service) *Service {
+	return &Service{pool: pool, ledgerSvc: ledgerSvc, resilienceSvc: resilienceSvc}
 }
 
 // Issue creates a new card for identityID against accountID, with default

@@ -11,6 +11,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payments"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
 
@@ -24,10 +25,11 @@ func mustMoney(t *testing.T, minor int64) ledger.Money {
 }
 
 type harness struct {
-	pool        *pgxpool.Pool
-	ledgerSvc   *ledger.Service
-	identitySvc *identity.Service
-	svc         *coolingoff.Service
+	pool          *pgxpool.Pool
+	ledgerSvc     *ledger.Service
+	identitySvc   *identity.Service
+	resilienceSvc *resilience.Service
+	svc           *coolingoff.Service
 }
 
 func newHarness(t *testing.T) harness {
@@ -35,10 +37,11 @@ func newHarness(t *testing.T) harness {
 	pool := testsupport.RequireTestPool(t)
 	ledgerSvc := ledger.NewService(pool)
 	identitySvc := identity.NewService(pool)
-	paymentsSvc := payments.NewService(pool, ledgerSvc, identitySvc)
+	resilienceSvc := resilience.NewService(pool)
+	paymentsSvc := payments.NewService(pool, ledgerSvc, identitySvc, resilienceSvc)
 	return harness{
-		pool: pool, ledgerSvc: ledgerSvc, identitySvc: identitySvc,
-		svc: coolingoff.NewService(pool, ledgerSvc, paymentsSvc, identitySvc, nil),
+		pool: pool, ledgerSvc: ledgerSvc, identitySvc: identitySvc, resilienceSvc: resilienceSvc,
+		svc: coolingoff.NewService(pool, ledgerSvc, paymentsSvc, identitySvc, resilienceSvc, nil),
 	}
 }
 
@@ -268,5 +271,60 @@ func TestReleaseMaturedCapturesDueHoldsExactlyOnce(t *testing.T) {
 	}
 	if bal.Available.Minor != 1_000_00 {
 		t.Fatalf("recipient balance after second run = %d, want unchanged 100000", bal.Available.Minor)
+	}
+}
+
+func TestSend_BlockedByReadOnly(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	fromID, _, fromAcc := h.newTierAccount(t, "Alice Sender", 1_000_000_00)
+	_, toEmail, _ := h.newTierAccount(t, "Bob Recipient", 0)
+
+	if _, err := h.resilienceSvc.SetReadOnly(ctx, true, "drill", "test"); err != nil {
+		t.Fatalf("SetReadOnly(true): %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := h.resilienceSvc.SetReadOnly(context.Background(), false, "", "test-cleanup"); err != nil {
+			t.Errorf("cleanup SetReadOnly(false): %v", err)
+		}
+	})
+
+	_, err := h.svc.Send(ctx, fromAcc, fromID, toEmail, "Bob Recipient", mustMoney(t, 1_000_00), testsupport.RandomKey(), false)
+	if !errors.Is(err, resilience.ErrReadOnly) {
+		t.Fatalf("send during read-only mode: got %v, want ErrReadOnly", err)
+	}
+}
+
+// TestCancel_NotBlockedByReadOnly proves the initiation-vs-resolution rule
+// (internal/resilience's package doc): read-only mode pauses new money
+// movement, but cancelling an already-held transfer is de-risking and must
+// keep working even mid-incident.
+func TestCancel_NotBlockedByReadOnly(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	fromID, _, fromAcc := h.newTierAccount(t, "Alice Sender", 1_000_000_00)
+	_, toEmail, _ := h.newTierAccount(t, "Bob Recipient", 0)
+
+	result, err := h.svc.Send(ctx, fromAcc, fromID, toEmail, "Bob Recipient", mustMoney(t, 1_000_00), testsupport.RandomKey(), false)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if result.Outcome != coolingoff.OutcomeHeld {
+		t.Fatalf("outcome = %s, want held", result.Outcome)
+	}
+
+	if _, err := h.resilienceSvc.SetReadOnly(ctx, true, "drill", "test"); err != nil {
+		t.Fatalf("SetReadOnly(true): %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := h.resilienceSvc.SetReadOnly(context.Background(), false, "", "test-cleanup"); err != nil {
+			t.Errorf("cleanup SetReadOnly(false): %v", err)
+		}
+	})
+
+	if err := h.svc.Cancel(ctx, result.PendingID, fromID); err != nil {
+		t.Fatalf("cancel during read-only mode: %v", err)
 	}
 }

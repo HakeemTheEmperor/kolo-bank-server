@@ -15,6 +15,7 @@ import (
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
 	"github.com/toluwalase/kolo-bank-server/internal/payouts"
 	"github.com/toluwalase/kolo-bank-server/internal/rails"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/risk"
 	"github.com/toluwalase/kolo-bank-server/internal/settlement"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
@@ -46,14 +47,14 @@ func newHarness(t *testing.T) harness {
 	pool := testsupport.RequireTestPool(t)
 	ledgerSvc := ledger.NewService(pool)
 	registry := rails.NewRegistry()
-	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), nil)
-	payoutsSvc := payouts.NewService(pool, externalSvc, registry)
+	externalSvc := externalpayments.NewService(pool, ledgerSvc, registry, risk.NewService(pool, ledgerSvc, compliance.NewStubScreener(), nil), resilience.NewService(pool), nil)
+	payoutsSvc := payouts.NewService(pool, externalSvc, registry, resilience.NewService(pool))
 	return harness{
 		pool:        pool,
 		ledgerSvc:   ledgerSvc,
 		tokensSvc:   tokens.NewService(pool),
 		externalSvc: externalSvc,
-		chargesSvc:  charges.NewService(pool, tokens.NewService(pool), externalSvc),
+		chargesSvc:  charges.NewService(pool, tokens.NewService(pool), externalSvc, resilience.NewService(pool)),
 		payoutsSvc:  payoutsSvc,
 		feesSvc:     fees.NewService(pool, ledgerSvc, nil),
 		settleSvc:   settlement.NewService(pool, payoutsSvc, nil),

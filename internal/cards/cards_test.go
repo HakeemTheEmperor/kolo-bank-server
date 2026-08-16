@@ -9,6 +9,7 @@ import (
 
 	"github.com/toluwalase/kolo-bank-server/internal/cards"
 	"github.com/toluwalase/kolo-bank-server/internal/ledger"
+	"github.com/toluwalase/kolo-bank-server/internal/resilience"
 	"github.com/toluwalase/kolo-bank-server/internal/testsupport"
 )
 
@@ -22,16 +23,18 @@ func mustMoney(t *testing.T, minor int64) ledger.Money {
 }
 
 type harness struct {
-	pool      *pgxpool.Pool
-	ledgerSvc *ledger.Service
-	svc       *cards.Service
+	pool          *pgxpool.Pool
+	ledgerSvc     *ledger.Service
+	resilienceSvc *resilience.Service
+	svc           *cards.Service
 }
 
 func newHarness(t *testing.T) harness {
 	t.Helper()
 	pool := testsupport.RequireTestPool(t)
 	ledgerSvc := ledger.NewService(pool)
-	return harness{pool: pool, ledgerSvc: ledgerSvc, svc: cards.NewService(pool, ledgerSvc)}
+	resilienceSvc := resilience.NewService(pool)
+	return harness{pool: pool, ledgerSvc: ledgerSvc, resilienceSvc: resilienceSvc, svc: cards.NewService(pool, ledgerSvc, resilienceSvc)}
 }
 
 func (h harness) newFundedAccount(t *testing.T, fundMinor int64) (identityID, accountID string) {
@@ -397,5 +400,91 @@ func TestChargebackReversesSettledTransactionAndIsIdempotent(t *testing.T) {
 	}
 	if bal.Available.Minor != 1_000_000_00 {
 		t.Fatalf("available after second chargeback = %d, want unchanged 100000000", bal.Available.Minor)
+	}
+}
+
+func TestAuthorize_BlockedByFeatureKillSwitch(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	identityID, accountID := h.newFundedAccount(t, 1_000_000_00)
+
+	card, err := h.svc.Issue(ctx, identityID, accountID, cards.CardTypeVirtual)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	if _, err := h.resilienceSvc.SetKillSwitch(ctx, resilience.Feature("card_authorize"), false, "incident", "test"); err != nil {
+		t.Fatalf("SetKillSwitch: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := h.resilienceSvc.SetKillSwitch(context.Background(), resilience.Feature("card_authorize"), true, "", "test-cleanup"); err != nil {
+			t.Errorf("cleanup SetKillSwitch: %v", err)
+		}
+	})
+
+	_, err = h.svc.Authorize(ctx, card.ID, "Grocery Store", "5411", mustMoney(t, 10_000_00), testsupport.RandomKey())
+	var killErr *resilience.ErrKillSwitchTripped
+	if !errors.As(err, &killErr) {
+		t.Fatalf("authorize while feature:card_authorize is tripped: got %v, want *ErrKillSwitchTripped", err)
+	}
+}
+
+// TestSettle_NotBlockedByReadOnly and TestVoid_NotBlockedByReadOnly prove
+// the initiation-vs-resolution rule (internal/resilience's package doc):
+// read-only mode pauses new authorizations, but completing or releasing one
+// already approved is de-risking and must keep working mid-incident.
+func TestSettle_NotBlockedByReadOnly(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	identityID, accountID := h.newFundedAccount(t, 1_000_000_00)
+
+	card, err := h.svc.Issue(ctx, identityID, accountID, cards.CardTypeVirtual)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	auth, err := h.svc.Authorize(ctx, card.ID, "Grocery Store", "5411", mustMoney(t, 10_000_00), testsupport.RandomKey())
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	if _, err := h.resilienceSvc.SetReadOnly(ctx, true, "drill", "test"); err != nil {
+		t.Fatalf("SetReadOnly(true): %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := h.resilienceSvc.SetReadOnly(context.Background(), false, "", "test-cleanup"); err != nil {
+			t.Errorf("cleanup SetReadOnly(false): %v", err)
+		}
+	})
+
+	if _, err := h.svc.Settle(ctx, auth.ID); err != nil {
+		t.Fatalf("settle during read-only mode: %v", err)
+	}
+}
+
+func TestVoid_NotBlockedByReadOnly(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	identityID, accountID := h.newFundedAccount(t, 1_000_000_00)
+
+	card, err := h.svc.Issue(ctx, identityID, accountID, cards.CardTypeVirtual)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	auth, err := h.svc.Authorize(ctx, card.ID, "Grocery Store", "5411", mustMoney(t, 10_000_00), testsupport.RandomKey())
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	if _, err := h.resilienceSvc.SetReadOnly(ctx, true, "drill", "test"); err != nil {
+		t.Fatalf("SetReadOnly(true): %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := h.resilienceSvc.SetReadOnly(context.Background(), false, "", "test-cleanup"); err != nil {
+			t.Errorf("cleanup SetReadOnly(false): %v", err)
+		}
+	})
+
+	if err := h.svc.Void(ctx, auth.ID); err != nil {
+		t.Fatalf("void during read-only mode: %v", err)
 	}
 }
