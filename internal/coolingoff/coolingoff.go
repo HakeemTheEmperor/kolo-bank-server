@@ -129,10 +129,6 @@ func (s *Service) Send(ctx context.Context, fromAccountID, fromIdentityID, recip
 		return SendResult{PayeeResult: payeeResult}, ErrPayeeMismatchNotConfirmed
 	}
 
-	if err := s.paymentsSvc.CheckLimits(ctx, fromAccountID, amount.Minor); err != nil {
-		return SendResult{}, err
-	}
-
 	reasons := riskReasons(payeeResult, amount.Minor)
 	firstTime, err := s.isFirstTimePayee(ctx, fromAccountID, toAccountID)
 	if err != nil {
@@ -143,11 +139,18 @@ func (s *Service) Send(ctx context.Context, fromAccountID, fromIdentityID, recip
 	}
 
 	if len(reasons) == 0 {
+		// payments.Transfer enforces the tier limits itself. Checking them
+		// here as well ran the daily-total query twice per transfer, and
+		// that query sums every transfer the sender made today.
 		txn, err := s.paymentsSvc.Transfer(ctx, fromAccountID, toAccountID, amount, idempotencyKey)
 		if err != nil {
 			return SendResult{}, err
 		}
 		return SendResult{Outcome: OutcomeCompleted, PayeeResult: payeeResult, Transaction: txn}, nil
+	}
+
+	if err := s.paymentsSvc.CheckLimits(ctx, fromAccountID, amount.Minor); err != nil {
+		return SendResult{}, err
 	}
 
 	pending, releaseAt, err := s.placeHold(ctx, fromAccountID, fromIdentityID, toAccountID, recipient.ID, amount, reasons, idempotencyKey)

@@ -206,6 +206,39 @@ func TestSendHeldRetriesPlaceOneHold(t *testing.T) {
 	}
 }
 
+// Tier limits apply on both paths: the immediate one (enforced inside
+// payments.Transfer) and the cooling-off one (checked before the hold).
+func TestSendEnforcesTierLimitsOnBothPaths(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	fromID, _, fromAcc := h.newTierAccount(t, "Alice Sender", 1_000_000_00)
+	if _, err := h.pool.Exec(ctx, `UPDATE identities SET kyc_tier = 0 WHERE id = $1`, fromID); err != nil {
+		t.Fatalf("set tier 0: %v", err)
+	}
+	_, knownEmail, knownAcc := h.newTierAccount(t, "Bob Known", 0)
+	_, newEmail, _ := h.newTierAccount(t, "Carol New", 0)
+	if _, err := h.ledgerSvc.Transfer(ctx, fromAcc, knownAcc, mustMoney(t, 1_00), testsupport.RandomKey()); err != nil {
+		t.Fatalf("seed payee history: %v", err)
+	}
+
+	overLimit := mustMoney(t, 6_000_00) // tier 0 allows 5,000.00 per transfer
+	if _, err := h.svc.Send(ctx, fromAcc, fromID, knownEmail, "Bob Known", overLimit, testsupport.RandomKey(), false); !errors.Is(err, payments.ErrLimitExceeded) {
+		t.Fatalf("known payee over limit: got %v, want ErrLimitExceeded", err)
+	}
+	if _, err := h.svc.Send(ctx, fromAcc, fromID, newEmail, "Carol New", overLimit, testsupport.RandomKey(), false); !errors.Is(err, payments.ErrLimitExceeded) {
+		t.Fatalf("first-time payee over limit: got %v, want ErrLimitExceeded", err)
+	}
+
+	bal, err := h.ledgerSvc.GetBalance(ctx, fromAcc)
+	if err != nil {
+		t.Fatalf("get balance: %v", err)
+	}
+	if bal.Pending.Minor != 0 || bal.Ledger.Minor != 1_000_000_00-1_00 {
+		t.Fatalf("ledger=%d pending=%d, want nothing moved or held", bal.Ledger.Minor, bal.Pending.Minor)
+	}
+}
+
 func TestSendNoMatchWithoutConfirmBlocksAndMovesNoFunds(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
