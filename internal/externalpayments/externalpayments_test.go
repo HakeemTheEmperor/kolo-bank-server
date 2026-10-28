@@ -141,6 +141,43 @@ func TestOutboundRailRejectionReleasesHold(t *testing.T) {
 	}
 }
 
+// A crash after the rail rejected a transfer and its hold was released,
+// but before the row was marked failed, used to leave the row
+// "processing" forever: every resolver pass retried the release, got
+// ErrHoldNotActive, and gave up.
+func TestCrashAfterReleaseIsResolvedByResolveStuck(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ledgerSvc, svc := newServices(pool)
+	ctx := context.Background()
+
+	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_00)
+	et, err := svc.SendOutbound(ctx, acc, "instant", "acct-RAILFAIL-999", mustMoney(t, 10_000_00), testsupport.RandomKey())
+	if err != nil {
+		t.Fatalf("send outbound: %v", err)
+	}
+
+	// The state that crash leaves behind: hold released, row still
+	// processing, attempted_at old enough for the resolver.
+	if err := ledgerSvc.ReleaseHold(ctx, *et.HoldID); err != nil {
+		t.Fatalf("release hold: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE external_transfers SET status = 'processing', attempted_at = now() - interval '10 minutes' WHERE id = $1`, et.ID); err != nil {
+		t.Fatalf("set crashed state: %v", err)
+	}
+
+	if err := svc.ResolveStuck(ctx); err != nil {
+		t.Fatalf("resolve stuck: %v", err)
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM external_transfers WHERE id = $1`, et.ID).Scan(&status); err != nil {
+		t.Fatalf("query status: %v", err)
+	}
+	if status != string(externalpayments.StatusFailed) {
+		t.Fatalf("status after resolve = %s, want failed", status)
+	}
+}
+
 func TestInboundSucceeds(t *testing.T) {
 	pool := testsupport.RequireTestPool(t)
 	ledgerSvc, svc := newServices(pool)

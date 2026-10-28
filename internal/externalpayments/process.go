@@ -2,6 +2,7 @@ package externalpayments
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -170,7 +171,10 @@ func (s *Service) finalize(ctx context.Context, row claimedRow) error {
 
 	if result.Status == rails.StatusFailed {
 		if row.Direction == rails.DirectionOutbound && row.HoldID != nil {
-			if err := s.ledgerSvc.ReleaseHold(ctx, *row.HoldID); err != nil {
+			// ErrHoldNotActive means an earlier attempt released the hold
+			// and crashed before marking the row failed; carry on and mark
+			// it now, or the resolver retries this row forever.
+			if err := s.ledgerSvc.ReleaseHold(ctx, *row.HoldID); err != nil && !errors.Is(err, ledger.ErrHoldNotActive) {
 				return fmt.Errorf("release hold on rail failure: %w", err)
 			}
 		}
