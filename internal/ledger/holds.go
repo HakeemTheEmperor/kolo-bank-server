@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 
@@ -25,7 +26,17 @@ func insertPostedTransaction(ctx context.Context, tx pgx.Tx, txType TransactionT
 		return "", fmt.Errorf("ledger: create transaction: %w", err)
 	}
 
-	for _, leg := range legs {
+	// Write the legs in account-id order. A debit leg locks its account
+	// row (FOR UPDATE, in ledger_check_available_balance) and a credit leg
+	// takes a FOR KEY SHARE lock on its account through the foreign key;
+	// the two conflict. Inserted in caller order, A->B and B->A transfers
+	// lock the same two rows in opposite orders and deadlock. A fixed order
+	// makes the second one wait instead.
+	ordered := make([]entryLeg, len(legs))
+	copy(ordered, legs)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].AccountID < ordered[j].AccountID })
+
+	for _, leg := range ordered {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO ledger_entries (transaction_id, account_id, amount_minor, currency)
 			VALUES ($1, $2, $3, $4)

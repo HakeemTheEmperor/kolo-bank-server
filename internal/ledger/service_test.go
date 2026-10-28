@@ -238,6 +238,45 @@ func TestConcurrentDebitsNoOverdraft(t *testing.T) {
 	}
 }
 
+// Transfers in opposite directions between the same two accounts used to
+// deadlock: each locked its own debit account, then waited on the other's
+// row for the credit leg's foreign-key check.
+func TestOppositeTransfersDoNotDeadlock(t *testing.T) {
+	pool := requireTestPool(t)
+	svc := ledger.NewService(pool)
+	ctx := context.Background()
+
+	a := newTestAccount(t, svc, 0)
+	b := newTestAccount(t, svc, 0)
+	for _, acc := range []ledger.Account{a, b} {
+		if _, err := svc.Credit(ctx, acc.ID, mustMoney(t, 100_000), randomKey()); err != nil {
+			t.Fatalf("seed credit: %v", err)
+		}
+	}
+
+	const n = 200
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			from, to := a.ID, b.ID
+			if i%2 == 1 {
+				from, to = b.ID, a.ID
+			}
+			if _, err := svc.Transfer(ctx, from, to, mustMoney(t, 1), randomKey()); err != nil {
+				errs <- err
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("transfer failed: %v", err)
+	}
+}
+
 func TestHoldPlaceReleaseCapture(t *testing.T) {
 	pool := requireTestPool(t)
 	svc := ledger.NewService(pool)
