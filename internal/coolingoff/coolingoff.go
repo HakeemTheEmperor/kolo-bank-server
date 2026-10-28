@@ -176,22 +176,28 @@ func riskReasons(result payee.Result, amountMinor int64) []string {
 
 // isFirstTimePayee reports whether fromAccountID has never sent a
 // completed internal transfer to toAccountID before.
+//
+// EXISTS rather than count(*): only "any" matters, and a repeat payee's
+// count grew with every transfer, making this the most expensive query on
+// POST /v1/me/transfers under load.
 func (s *Service) isFirstTimePayee(ctx context.Context, fromAccountID, toAccountID string) (bool, error) {
-	var count int
+	var paidBefore bool
 	err := s.pool.QueryRow(ctx, `
-		SELECT count(*)
-		FROM ledger_entries le
-		JOIN ledger_transactions lt ON lt.id = le.transaction_id
-		WHERE le.account_id = $1 AND le.amount_minor < 0 AND lt.type = 'transfer' AND lt.state = 'posted'
-		  AND EXISTS (
-		      SELECT 1 FROM ledger_entries le2
-		      WHERE le2.transaction_id = lt.id AND le2.account_id = $2 AND le2.amount_minor > 0
-		  )
-	`, fromAccountID, toAccountID).Scan(&count)
+		SELECT EXISTS (
+			SELECT 1
+			FROM ledger_entries le
+			JOIN ledger_transactions lt ON lt.id = le.transaction_id
+			WHERE le.account_id = $1 AND le.amount_minor < 0 AND lt.type = 'transfer' AND lt.state = 'posted'
+			  AND EXISTS (
+			      SELECT 1 FROM ledger_entries le2
+			      WHERE le2.transaction_id = lt.id AND le2.account_id = $2 AND le2.amount_minor > 0
+			  )
+		)
+	`, fromAccountID, toAccountID).Scan(&paidBefore)
 	if err != nil {
 		return false, fmt.Errorf("coolingoff: check payee history: %w", err)
 	}
-	return count == 0, nil
+	return !paidBefore, nil
 }
 
 func (s *Service) placeHold(ctx context.Context, fromAccountID, fromIdentityID, toAccountID, toIdentityID string, amount ledger.Money, reasons []string, idempotencyKey string) (id string, releaseAt time.Time, err error) {
