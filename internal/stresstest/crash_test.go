@@ -210,52 +210,52 @@ func TestCrashPoints(t *testing.T) {
 	ext := newExternalService(p, ledgerSvc)
 	ctx := context.Background()
 
-	// recordAssessment writes the risk_assessments row exactly as
-	// risk.Service.record does, i.e. the state right before Assess applies
-	// its decision to the transfer.
-	recordAssessment := func(t *testing.T, transferID, decision string, score int) {
-		if _, err := p.Exec(ctx, `
-			INSERT INTO risk_assessments (source_type, source_id, score, decision, reasons)
-			VALUES ('external_transfer', $1, $2, $3, '["crash-point"]')
-		`, transferID, score, decision); err != nil {
-			t.Fatalf("record assessment: %v", err)
-		}
-	}
-
 	type point struct {
 		name   string
 		ref    string
+		amount int64  // defaults to 250
 		want   string // final status the transfer should reach: completed, failed or held
 		before func(t *testing.T, transferID, holdID, key string)
 	}
+	// The risk points are the step boundaries risk.Service.apply has since
+	// the fix in 25eb299: a block releases the hold before its one commit,
+	// and a hold has nothing before its commit. The pre-fix code had a
+	// different boundary (assessment recorded, decision not yet applied);
+	// METRICS.md reports both.
 	points := []point{
-		{"after_claim_before_rail_call", "ACCT-OK", "completed", func(*testing.T, string, string, string) {}},
-		{"after_capture_before_mark_completed", "ACCT-OK", "completed", func(t *testing.T, _, holdID, key string) {
+		{"after_claim_before_rail_call", "ACCT-OK", 0, "completed", func(*testing.T, string, string, string) {}},
+		{"after_capture_before_mark_completed", "ACCT-OK", 0, "completed", func(t *testing.T, _, holdID, key string) {
 			if _, err := ledgerSvc.CaptureHold(ctx, holdID, key); err != nil {
 				t.Fatalf("capture: %v", err)
 			}
 		}},
-		{"after_release_before_mark_failed", "ACCT-RAILFAIL", "failed", func(t *testing.T, _, holdID, _ string) {
+		{"after_release_before_mark_failed", "ACCT-RAILFAIL", 0, "failed", func(t *testing.T, _, holdID, _ string) {
 			if err := ledgerSvc.ReleaseHold(ctx, holdID); err != nil {
 				t.Fatalf("release: %v", err)
 			}
 		}},
-		{"after_risk_block_recorded_before_applied", "ACCT-FRAUDSCORE", "failed", func(t *testing.T, id, _, _ string) {
-			recordAssessment(t, id, "block", 100)
+		{"risk_block_after_hold_release_before_commit", "ACCT-FRAUDSCORE", 0, "failed", func(t *testing.T, _, holdID, _ string) {
+			if err := ledgerSvc.ReleaseHold(ctx, holdID); err != nil {
+				t.Fatalf("release: %v", err)
+			}
 		}},
-		{"after_risk_hold_recorded_before_applied", "ACCT-OK", "held", func(t *testing.T, id, _, _ string) {
-			recordAssessment(t, id, "hold", 70)
-		}},
+		// 10,000,000.00 NGN trips risk's large-amount rule, so this one
+		// would be held for review.
+		{"risk_hold_before_commit", "ACCT-OK", 10_000_000_00, "held", func(*testing.T, string, string, string) {}},
 	}
 
 	for _, pt := range points {
 		var keys []string
 		var ids []string
 		for i := 0; i < perPoint; i++ {
-			acc := newFundedAccount(t, p, ledgerSvc, 10_000)
+			amount := pt.amount
+			if amount == 0 {
+				amount = 250
+			}
+			acc := newFundedAccount(t, p, ledgerSvc, 10_000+amount)
 			ids = append(ids, acc.ID)
 			key := "crashpoint-" + testsupport.RandomKey()
-			et, err := ext.SendOutbound(ctx, acc.ID, "instant", pt.ref, ngn(250), key)
+			et, err := ext.SendOutbound(ctx, acc.ID, "instant", pt.ref, ngn(amount), key)
 			if err != nil {
 				t.Fatalf("send: %v", err)
 			}
@@ -304,9 +304,13 @@ func TestCrashPoints(t *testing.T) {
 			if got == pt.want {
 				matched++
 			}
-			want := int64(10_000)
+			amount := pt.amount
+			if amount == 0 {
+				amount = 250
+			}
+			want := 10_000 + amount
 			if status == "completed" {
-				want -= 250
+				want -= amount
 			}
 			if ledgerBalance(t, p, id) != want {
 				wrong++
