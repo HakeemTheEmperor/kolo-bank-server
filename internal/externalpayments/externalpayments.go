@@ -117,7 +117,7 @@ func (s *Service) send(ctx context.Context, direction rails.Direction, accountID
 	// Idempotency-key replay first: a retry of an already-accepted request
 	// just returns what already happened, and must not start failing
 	// because a kill switch was flipped afterward.
-	if existing, ok, err := s.getByIdempotencyKey(ctx, idempotencyKey); err != nil {
+	if existing, ok, err := getByIdempotencyKey(ctx, s.pool, idempotencyKey); err != nil {
 		return ExternalTransfer{}, err
 	} else if ok {
 		return existing, nil
@@ -127,9 +127,29 @@ func (s *Service) send(ctx context.Context, direction rails.Direction, accountID
 		return ExternalTransfer{}, err
 	}
 
+	// The hold and the row that owns it commit together, and requests
+	// sharing an idempotency key queue on an advisory lock first. Without
+	// both, a retry (or a crash between the two writes) placed a second
+	// hold whose row insert then failed on the unique key, leaving that
+	// hold active with nothing to ever release it.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return ExternalTransfer{}, fmt.Errorf("externalpayments: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1, hashtext($2))`, idempotencyLockNamespace, idempotencyKey); err != nil {
+		return ExternalTransfer{}, fmt.Errorf("externalpayments: lock idempotency key: %w", err)
+	}
+	if existing, ok, err := getByIdempotencyKey(ctx, tx, idempotencyKey); err != nil {
+		return ExternalTransfer{}, err
+	} else if ok {
+		return existing, nil
+	}
+
 	var holdID *string
 	if direction == rails.DirectionOutbound {
-		hold, err := s.ledgerSvc.PlaceHold(ctx, accountID, amount)
+		hold, err := s.ledgerSvc.PlaceHoldTx(ctx, tx, accountID, amount)
 		if err != nil {
 			return ExternalTransfer{}, fmt.Errorf("externalpayments: place hold: %w", err)
 		}
@@ -137,7 +157,7 @@ func (s *Service) send(ctx context.Context, direction rails.Direction, accountID
 	}
 
 	var et ExternalTransfer
-	err := s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO external_transfers (direction, account_id, rail_name, counterparty_ref, amount_minor, currency, idempotency_key, hold_id, batch_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id::text, direction, account_id::text, rail_name, counterparty_ref, amount_minor, currency, idempotency_key, hold_id::text, batch_id::text, status, created_at
@@ -148,12 +168,25 @@ func (s *Service) send(ctx context.Context, direction rails.Direction, accountID
 	if err != nil {
 		return ExternalTransfer{}, fmt.Errorf("externalpayments: create: %w", err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return ExternalTransfer{}, fmt.Errorf("externalpayments: commit: %w", err)
+	}
 	return et, nil
 }
 
-func (s *Service) getByIdempotencyKey(ctx context.Context, idempotencyKey string) (ExternalTransfer, bool, error) {
+// idempotencyLockNamespace is the first key of the two-key advisory lock
+// send takes per idempotency key, keeping it apart from any other
+// advisory locks in the database.
+const idempotencyLockNamespace = 7301
+
+// querier is satisfied by both *pgxpool.Pool and pgx.Tx.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func getByIdempotencyKey(ctx context.Context, q querier, idempotencyKey string) (ExternalTransfer, bool, error) {
 	var et ExternalTransfer
-	err := s.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT id::text, direction, account_id::text, rail_name, counterparty_ref, amount_minor, currency, idempotency_key, hold_id::text, batch_id::text, status, created_at
 		FROM external_transfers WHERE idempotency_key = $1
 	`, idempotencyKey).Scan(

@@ -3,6 +3,7 @@ package coolingoff_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -145,6 +146,63 @@ func TestSendFirstTimePayeeIsHeld(t *testing.T) {
 	}
 	if fromBal.Pending.Minor != 1_000_00 {
 		t.Fatalf("sender pending = %d, want 100000 (hold reserved)", fromBal.Pending.Minor)
+	}
+}
+
+// Retrying a held send with the same idempotency key, one after another
+// or all at once, must return the original pending transfer and reserve
+// the money once. It used to place a new hold per retry and fail with a
+// unique-key error, leaving each extra hold active.
+func TestSendHeldRetriesPlaceOneHold(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	fromID, _, fromAcc := h.newTierAccount(t, "Alice Sender", 1_000_000_00)
+	_, toEmail, _ := h.newTierAccount(t, "Bob Recipient", 0)
+	key := testsupport.RandomKey()
+
+	first, err := h.svc.Send(ctx, fromAcc, fromID, toEmail, "Bob Recipient", mustMoney(t, 1_000_00), key, false)
+	if err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	if first.Outcome != coolingoff.OutcomeHeld {
+		t.Fatalf("outcome = %s, want held (first-time payee)", first.Outcome)
+	}
+
+	const retries = 20
+	var wg sync.WaitGroup
+	errs := make(chan error, retries)
+	ids := make(chan string, retries)
+	wg.Add(retries)
+	for i := 0; i < retries; i++ {
+		go func() {
+			defer wg.Done()
+			r, err := h.svc.Send(ctx, fromAcc, fromID, toEmail, "Bob Recipient", mustMoney(t, 1_000_00), key, false)
+			if err != nil {
+				errs <- err
+				return
+			}
+			ids <- r.PendingID
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	close(ids)
+	for err := range errs {
+		t.Errorf("retry: %v", err)
+	}
+	for id := range ids {
+		if id != first.PendingID {
+			t.Errorf("retry returned pending id %s, want %s", id, first.PendingID)
+		}
+	}
+
+	bal, err := h.ledgerSvc.GetBalance(ctx, fromAcc)
+	if err != nil {
+		t.Fatalf("get balance: %v", err)
+	}
+	if bal.Pending.Minor != 1_000_00 {
+		t.Fatalf("pending = %d, want 100000 (one hold despite %d retries)", bal.Pending.Minor, retries)
 	}
 }
 

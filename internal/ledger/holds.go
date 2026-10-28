@@ -58,6 +58,24 @@ func (s *Service) PlaceHold(ctx context.Context, accountID string, amount Money)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	h, err := s.PlaceHoldTx(ctx, tx, accountID, amount)
+	if err != nil {
+		return Hold{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Hold{}, fmt.Errorf("ledger: commit: %w", err)
+	}
+
+	return h, nil
+}
+
+// PlaceHoldTx is PlaceHold inside the caller's transaction. It exists so
+// a caller can write the hold and the row that owns it (an external
+// transfer, a cooling-off transfer) in one commit: if either insert fails,
+// or the process dies in between, neither exists, instead of leaving an
+// active hold that nothing will ever capture or release.
+func (s *Service) PlaceHoldTx(ctx context.Context, tx pgx.Tx, accountID string, amount Money) (Hold, error) {
 	var overdraft int64
 	if err := tx.QueryRow(ctx, `SELECT overdraft_limit_minor FROM accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&overdraft); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -88,10 +106,6 @@ func (s *Service) PlaceHold(ctx context.Context, accountID string, amount Money)
 		return Hold{}, fmt.Errorf("ledger: place hold: %w", err)
 	}
 	h.Amount.Currency = amount.Currency
-
-	if err := tx.Commit(ctx); err != nil {
-		return Hold{}, fmt.Errorf("ledger: commit: %w", err)
-	}
 
 	return h, nil
 }

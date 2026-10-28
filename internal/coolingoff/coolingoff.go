@@ -195,18 +195,42 @@ func (s *Service) isFirstTimePayee(ctx context.Context, fromAccountID, toAccount
 }
 
 func (s *Service) placeHold(ctx context.Context, fromAccountID, fromIdentityID, toAccountID, toIdentityID string, amount ledger.Money, reasons []string, idempotencyKey string) (id string, releaseAt time.Time, err error) {
-	hold, err := s.ledgerSvc.PlaceHold(ctx, fromAccountID, amount)
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("coolingoff: place hold: %w", err)
-	}
-
 	reasonsJSON, err := json.Marshal(reasons)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("coolingoff: marshal reasons: %w", err)
 	}
 
+	// The hold and its cooling_off_transfers row commit together, and a
+	// retry with the same idempotency key waits on the advisory lock and
+	// then gets the first request's row back. Before, every retry placed
+	// another hold, failed the insert on the unique key with a 500, and
+	// left that hold reserving money with nothing to release it.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("coolingoff: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1, hashtext($2))`, idempotencyLockNamespace, idempotencyKey); err != nil {
+		return "", time.Time{}, fmt.Errorf("coolingoff: lock idempotency key: %w", err)
+	}
+	err = tx.QueryRow(ctx, `
+		SELECT id::text, release_at FROM cooling_off_transfers WHERE idempotency_key = $1
+	`, idempotencyKey).Scan(&id, &releaseAt)
+	if err == nil {
+		return id, releaseAt, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", time.Time{}, fmt.Errorf("coolingoff: look up idempotency key: %w", err)
+	}
+
+	hold, err := s.ledgerSvc.PlaceHoldTx(ctx, tx, fromAccountID, amount)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("coolingoff: place hold: %w", err)
+	}
+
 	releaseAt = time.Now().Add(coolingOffWindow)
-	err = s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO cooling_off_transfers (from_account_id, from_identity_id, to_account_id, to_identity_id, amount_minor, currency, reasons, hold_id, release_at, idempotency_key)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id::text
@@ -214,8 +238,16 @@ func (s *Service) placeHold(ctx context.Context, fromAccountID, fromIdentityID, 
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("coolingoff: record pending transfer: %w", err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", time.Time{}, fmt.Errorf("coolingoff: commit: %w", err)
+	}
 	return id, releaseAt, nil
 }
+
+// idempotencyLockNamespace is the first key of the two-key advisory lock
+// placeHold takes per idempotency key (internal/externalpayments uses
+// 7301 for its own keys).
+const idempotencyLockNamespace = 7302
 
 // Cancel releases a still-pending hold before its cooling-off window
 // expires. Ownership-checked: only the sender can cancel their own hold.

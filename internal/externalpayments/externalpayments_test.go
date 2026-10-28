@@ -3,6 +3,7 @@ package externalpayments_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -384,6 +385,56 @@ func TestSendOutboundIsIdempotent(t *testing.T) {
 	}
 	if bal.Pending.Minor != 5_000_00 {
 		t.Fatalf("pending = %d, want 500000 (only one hold placed)", bal.Pending.Minor)
+	}
+}
+
+// Concurrent SendOutbound calls with one idempotency key used to place a
+// hold each; all but one then failed the row insert and left their hold
+// active with no transfer pointing at it.
+func TestSendOutboundConcurrentSameKeyPlacesOneHold(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ledgerSvc, svc := newServices(pool)
+	ctx := context.Background()
+
+	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_00)
+	key := testsupport.RandomKey()
+
+	const n = 20
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	ids := make(chan string, n)
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			et, err := svc.SendOutbound(ctx, acc, "instant", "acct-999", mustMoney(t, 1_000_00), key)
+			if err != nil {
+				errs <- err
+				return
+			}
+			ids <- et.ID
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	close(ids)
+	for err := range errs {
+		t.Errorf("send: %v", err)
+	}
+	seen := map[string]bool{}
+	for id := range ids {
+		seen[id] = true
+	}
+	if len(seen) != 1 {
+		t.Errorf("got %d distinct transfers, want 1", len(seen))
+	}
+
+	bal, err := ledgerSvc.GetBalance(ctx, acc)
+	if err != nil {
+		t.Fatalf("get balance: %v", err)
+	}
+	if bal.Pending.Minor != 1_000_00 {
+		t.Fatalf("pending = %d, want 100000 (one hold)", bal.Pending.Minor)
 	}
 }
 
