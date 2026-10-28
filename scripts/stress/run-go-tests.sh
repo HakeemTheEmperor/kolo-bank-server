@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs every stress test (METRICS.md, tests 1-6) and appends results as
+# Runs every stress test (METRICS.md, tests 1-6 and the history test) and appends results as
 # JSON lines to $STRESS_RESULTS. Expects a fresh database (fresh-db.sh).
 #
 #   DATABASE_URL=postgres://kolo:kolo@localhost:5433/kolo_bank?sslmode=disable \
@@ -16,7 +16,7 @@ export STRESS_RESULTS STRESS_RUNS="${STRESS_RUNS:-5}" STRESS_CRASH_RUNS="${STRES
 # Default build: every protection as shipped (plus the test-side "off"
 # variants that don't need a different build).
 go test -tags stress -count=1 -timeout 120m -v ./internal/stresstest \
-  -run 'TestConcurrentDebits|TestIdempotency|TestHold|TestDoubleEntry|TestCrash|TestWebhookRetries' 2>&1 \
+  -run 'TestConcurrentDebits|TestIdempotency|TestHold|TestDoubleEntry|TestCrash|TestWebhookRetries|TestHistoryGrowth' 2>&1 \
   | tee "${STRESS_RESULTS%.jsonl}.log" | grep -E '^(=== RUN|--- |ok|FAIL|PASS)|RESULT' | sed 's/,"at":.*//' | cut -c1-300
 
 # stress_nolock build: the ledger's hold row lock removed, for the

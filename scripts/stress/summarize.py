@@ -2,12 +2,16 @@
 """Summarise stress-test results (JSON lines from run-go-tests.sh).
 
     python3 scripts/stress/summarize.py stress-results/before.jsonl
+    python3 scripts/stress/summarize.py --k6 stress-results/k6
 
 Prints one markdown table per test. Runs of the same scenario and
 protection are merged; a metric that differed between runs is shown as
 "min to max", never as an average or a best run.
 """
+import glob
 import json
+import os
+import re
 import sys
 from collections import OrderedDict
 
@@ -64,5 +68,42 @@ def main(path):
             print()
 
 
+def k6(root):
+    """One table per configuration; labels ending in -runN are merged."""
+    configs = OrderedDict()
+    for d in sorted(glob.glob(os.path.join(root, "*"))):
+        if not os.path.isdir(d):
+            continue
+        config = re.sub(r"-run\d+$", "", os.path.basename(d))
+        for f in glob.glob(os.path.join(d, "summary-*.json")):
+            vus = int(re.search(r"summary-(\d+)\.json$", f).group(1))
+            m = json.load(open(f))["metrics"]
+            dur = m["http_req_duration"]
+            configs.setdefault(config, {}).setdefault(vus, []).append({
+                "req/s": m["http_reqs"]["rate"],
+                "p50 ms": dur["med"],
+                "p95 ms": dur["p(95)"],
+                "p99 ms": dur["p(99)"],
+                "error %": m["http_req_failed"]["value"] * 100,
+                "requests": m["http_reqs"]["count"],
+            })
+    cols = ["req/s", "p50 ms", "p95 ms", "p99 ms", "error %", "requests"]
+    for config, levels in configs.items():
+        runs = max(len(v) for v in levels.values())
+        print(f"\n**{config}** ({runs} run{'s' if runs != 1 else ''} per level)\n")
+        print("| VUs | " + " | ".join(cols) + " |")
+        print("|---" * (len(cols) + 1) + "|")
+        for vus in sorted(levels):
+            rows = levels[vus]
+            cells = []
+            for c in cols:
+                vals = [round(r[c]) if c != "error %" else round(r[c], 2) for r in rows]
+                cells.append(fmt(vals))
+            print(f"| {vus} | " + " | ".join(cells) + " |")
+
+
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if sys.argv[1] == "--k6":
+        k6(sys.argv[2])
+    else:
+        main(sys.argv[1])
