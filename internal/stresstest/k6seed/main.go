@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 
 	"github.com/toluwalase/kolo-bank-server/internal/auth"
 	"github.com/toluwalase/kolo-bank-server/internal/identity"
@@ -35,9 +38,13 @@ type pair struct {
 func main() {
 	n := flag.Int("senders", 200, "number of sender/recipient pairs")
 	out := flag.String("out", "k6-pairs.json", "output file")
+	migrations := flag.String("migrations", "db/migrations", "goose migrations to apply first")
 	flag.Parse()
 
 	ctx := context.Background()
+	if err := migrate(os.Getenv("DATABASE_URL"), *migrations); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
 	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		log.Fatal(err)
@@ -90,6 +97,20 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("wrote %d pairs to %s\n", len(pairs), *out)
+}
+
+// migrate applies the schema, so the seeder works against an empty
+// database straight from scripts/stress/fresh-db.sh.
+func migrate(dsn, dir string) error {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := goose.SetDialect("postgres"); err != nil {
+		return err
+	}
+	return goose.Up(db, dir)
 }
 
 func randomHex(n int) string {
