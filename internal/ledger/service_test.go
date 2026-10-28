@@ -287,6 +287,35 @@ func TestHoldPlaceReleaseCapture(t *testing.T) {
 	}
 }
 
+// A hold already reserves its amount, so capturing it must succeed even
+// when it covers the whole balance (the hold used to be counted twice).
+func TestCaptureHoldOfFullBalance(t *testing.T) {
+	pool := requireTestPool(t)
+	svc := ledger.NewService(pool)
+	ctx := context.Background()
+
+	acc := newTestAccount(t, svc, 0)
+	if _, err := svc.Credit(ctx, acc.ID, mustMoney(t, 1000), randomKey()); err != nil {
+		t.Fatalf("seed credit: %v", err)
+	}
+	hold, err := svc.PlaceHold(ctx, acc.ID, mustMoney(t, 1000))
+	if err != nil {
+		t.Fatalf("place hold: %v", err)
+	}
+	if _, err := svc.CaptureHold(ctx, hold.ID, randomKey()); err != nil {
+		t.Fatalf("capture full-balance hold: %v", err)
+	}
+
+	bal, err := svc.GetBalance(ctx, acc.ID)
+	if err != nil {
+		t.Fatalf("get balance: %v", err)
+	}
+	if bal.Ledger.Minor != 0 || bal.Pending.Minor != 0 || bal.Available.Minor != 0 {
+		t.Fatalf("after capture: ledger=%d pending=%d available=%d, want 0/0/0",
+			bal.Ledger.Minor, bal.Pending.Minor, bal.Available.Minor)
+	}
+}
+
 func TestHoldRelease(t *testing.T) {
 	pool := requireTestPool(t)
 	svc := ledger.NewService(pool)

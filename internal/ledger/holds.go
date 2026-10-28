@@ -148,6 +148,15 @@ func (s *Service) CaptureHold(ctx context.Context, holdID string, idempotencyKey
 				return nil, err
 			}
 
+			// Mark the hold captured before posting its debit: the
+			// available-balance trigger subtracts active holds, so a hold
+			// still active at insert time would be counted against its own
+			// capture, and any hold over half the balance could never be
+			// captured.
+			if _, err := tx.Exec(ctx, `UPDATE holds SET status = 'captured' WHERE id = $1`, holdID); err != nil {
+				return nil, fmt.Errorf("ledger: update hold status: %w", err)
+			}
+
 			legs := []entryLeg{
 				{AccountID: accountID, Amount: amount.Negate()},
 				{AccountID: systemAccount, Amount: amount},
@@ -155,10 +164,6 @@ func (s *Service) CaptureHold(ctx context.Context, holdID string, idempotencyKey
 			txnID, err := insertPostedTransaction(ctx, tx, TransactionTypeDebit, idempotencyKey, legs)
 			if err != nil {
 				return nil, err
-			}
-
-			if _, err := tx.Exec(ctx, `UPDATE holds SET status = 'captured' WHERE id = $1`, holdID); err != nil {
-				return nil, fmt.Errorf("ledger: update hold status: %w", err)
 			}
 
 			result := transactionResult{TransactionID: txnID, State: string(TransactionStatePosted)}
