@@ -98,7 +98,7 @@ func (s *Service) resolveHold(ctx context.Context, holdID string, target HoldSta
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT status FROM holds WHERE id = $1 FOR UPDATE`, holdID).Scan(&status); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status FROM holds WHERE id = $1`+holdRowLock, holdID).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrHoldNotFound
 		}
@@ -125,7 +125,7 @@ func (s *Service) CaptureHold(ctx context.Context, holdID string, idempotencyKey
 			var accountID, status string
 			var amountMinor int64
 			if err := tx.QueryRow(ctx,
-				`SELECT account_id::text, amount_minor, status FROM holds WHERE id = $1 FOR UPDATE`,
+				`SELECT account_id::text, amount_minor, status FROM holds WHERE id = $1`+holdRowLock,
 				holdID,
 			).Scan(&accountID, &amountMinor, &status); err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
