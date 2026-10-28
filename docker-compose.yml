@@ -21,7 +21,10 @@ services:
       dockerfile: Dockerfile
     environment:
       HTTP_ADDR: ":8080"
-      DATABASE_URL: "postgres://kolo:kolo@postgres:5432/kolo_bank?sslmode=disable"
+      # pool_max_conns=20: pgxpool's default is max(4, CPU count). In the
+      # METRICS.md k6 runs, 20 connections gave 409-458 req/s on
+      # POST /v1/me/transfers against 362-449 with the default.
+      DATABASE_URL: "postgres://kolo:kolo@postgres:5432/kolo_bank?sslmode=disable&pool_max_conns=20"
       LOG_LEVEL: "debug"
       KOLO_KEY_ledger-signing: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA=="
       ADMIN_API_KEY: "dev-admin-key"
