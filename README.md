@@ -286,6 +286,7 @@ Beyond `go test`, two more verification tools live in `scripts/` (see `docs/dr-r
 - `make dr-drill` — a real backup/restore/failover drill against the running stack, reporting measured RTO.
 - `make chaos-drill` — runs `make loadtest` in the background while killing and restarting the `api` and `postgres` containers mid-flight, then asserts the system recovered with no stuck transactions and the double-entry invariant intact.
 - `make loadtest` — a standalone load/soak test (`cmd/loadtest`) against the running API, reporting p50/p95/p99 latency and error rate.
+- `internal/stresstest` (build tag `stress`) and `scripts/stress/` — concurrency, idempotency, hold-race, crash-recovery, webhook-retry and k6 throughput measurements, each run with the protection on and off. Results and the commands to rerun them are in [`METRICS.md`](METRICS.md).
 
 When adding a feature, match the existing test shape for that layer:
 - **Service-layer tests** (`internal/<pkg>/*_test.go`) exercise the service directly against `testsupport.RequireTestPool`, including concurrent/idempotency-retry cases where relevant.
