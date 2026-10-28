@@ -7,8 +7,10 @@ set -euo pipefail
 NAME="${PG_CONTAINER:-kolo-stress-pg}"
 PORT="${PG_PORT:-5433}"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
+# postgres:16-alpine (16.15) as pulled for METRICS.md, pinned by digest.
+IMAGE="${PG_IMAGE:-postgres@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab}"
 docker run -d --name "$NAME" -e POSTGRES_USER=kolo -e POSTGRES_PASSWORD=kolo -e POSTGRES_DB=kolo_bank \
-  -p "$PORT:5432" postgres:16-alpine >/dev/null
+  -p "$PORT:5432" "$IMAGE" >/dev/null
 for _ in $(seq 1 60); do
   docker exec "$NAME" pg_isready -U kolo -d kolo_bank >/dev/null 2>&1 && break
   sleep 1

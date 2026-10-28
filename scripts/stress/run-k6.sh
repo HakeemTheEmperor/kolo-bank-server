@@ -21,7 +21,8 @@ LEVELS="${LEVELS:-10 25 50 100 200}"
 DURATION="${DURATION:-30s}"
 OUT_DIR="${OUT_DIR:-stress-results/k6}/$LABEL"
 PORT="${PORT:-18080}"
-K6_IMAGE="${K6_IMAGE:-grafana/k6:latest}"
+# k6 v2.3.0, pinned by digest so reruns use the same build.
+K6_IMAGE="${K6_IMAGE:-grafana/k6@sha256:3e4186aea62e11a45560bfc51e19eeafe82fc07ce069c78aff44b7ff893d9a5e}"
 mkdir -p "$OUT_DIR"
 
 go build -o "$OUT_DIR/api" ./cmd/api
