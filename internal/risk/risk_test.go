@@ -121,6 +121,41 @@ func TestAssessSanctionsHitBlocksAndReleasesHold(t *testing.T) {
 	}
 }
 
+// A crash after a block released the hold but before anything was
+// recorded leaves an unscored transfer with a released hold. Assessing it
+// again must still block it, not fail on the already-released hold.
+func TestAssessBlockAfterHoldAlreadyReleased(t *testing.T) {
+	pool := testsupport.RequireTestPool(t)
+	ctx := context.Background()
+	ledgerSvc := ledger.NewService(pool)
+	riskSvc := newRiskService(pool, ledgerSvc)
+
+	acc := newFundedAccount(t, pool, ledgerSvc, 100_000_00)
+	transferID := placeHeldTransfer(t, pool, ledgerSvc, acc, "acct-FRAUDSCORE-1", 1_000_00)
+	var holdID string
+	if err := pool.QueryRow(ctx, `SELECT hold_id::text FROM external_transfers WHERE id = $1`, transferID).Scan(&holdID); err != nil {
+		t.Fatalf("query hold: %v", err)
+	}
+	if err := ledgerSvc.ReleaseHold(ctx, holdID); err != nil {
+		t.Fatalf("release hold: %v", err)
+	}
+
+	a, err := riskSvc.Assess(ctx, transferID)
+	if err != nil {
+		t.Fatalf("assess: %v", err)
+	}
+	if a.Decision != risk.DecisionBlock {
+		t.Fatalf("decision = %s, want block", a.Decision)
+	}
+	var status, riskStatus string
+	if err := pool.QueryRow(ctx, `SELECT status, risk_status FROM external_transfers WHERE id = $1`, transferID).Scan(&status, &riskStatus); err != nil {
+		t.Fatalf("query transfer: %v", err)
+	}
+	if status != "failed" || riskStatus != "blocked" {
+		t.Fatalf("status=%s risk_status=%s, want failed/blocked", status, riskStatus)
+	}
+}
+
 func TestAssessFraudMarkerBlocks(t *testing.T) {
 	pool := testsupport.RequireTestPool(t)
 	ctx := context.Background()

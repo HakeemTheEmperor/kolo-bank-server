@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/toluwalase/kolo-bank-server/internal/kyc"
@@ -123,22 +124,50 @@ func (s *Service) Assess(ctx context.Context, transferID string) (Assessment, er
 		return Assessment{}, err
 	}
 
-	if err := s.record(ctx, assessment); err != nil {
+	if err := s.apply(ctx, transferID, tf.HoldID, assessment); err != nil {
 		return Assessment{}, err
 	}
 
-	switch assessment.Decision {
-	case DecisionBlock:
-		if err := s.failAndRelease(ctx, transferID, tf.HoldID, "blocked by risk assessment"); err != nil {
-			return Assessment{}, err
-		}
-	case DecisionHold:
-		if _, err := s.pool.Exec(ctx, `UPDATE external_transfers SET risk_status = 'held' WHERE id = $1`, transferID); err != nil {
-			return Assessment{}, fmt.Errorf("risk: mark held: %w", err)
+	return assessment, nil
+}
+
+// apply records assessment and puts its decision into effect in one
+// commit. internal/externalpayments skips scoring once an assessment row
+// exists (see Assessed), so a row recorded without its effect, after a
+// crash between the two, used to let a blocked or held transfer go
+// straight to the rail. A block's hold is released before that commit;
+// a crash after the release only means the transfer is scored again, and
+// the release is then a no-op.
+func (s *Service) apply(ctx context.Context, transferID string, holdID *string, a Assessment) error {
+	if a.Decision == DecisionBlock && holdID != nil {
+		if err := s.ledgerSvc.ReleaseHold(ctx, *holdID); err != nil && !errors.Is(err, ledger.ErrHoldNotActive) {
+			return fmt.Errorf("risk: release hold: %w", err)
 		}
 	}
 
-	return assessment, nil
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("risk: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := record(ctx, tx, a); err != nil {
+		return err
+	}
+	switch a.Decision {
+	case DecisionBlock:
+		if err := markBlocked(ctx, tx, transferID, "blocked by risk assessment"); err != nil {
+			return err
+		}
+	case DecisionHold:
+		if _, err := tx.Exec(ctx, `UPDATE external_transfers SET risk_status = 'held' WHERE id = $1`, transferID); err != nil {
+			return fmt.Errorf("risk: mark held: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("risk: commit assessment: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) evaluate(ctx context.Context, transferID string, tf transferFields) (Assessment, error) {
@@ -201,12 +230,12 @@ func (s *Service) loadTransfer(ctx context.Context, transferID string) (transfer
 	return tf, nil
 }
 
-func (s *Service) record(ctx context.Context, a Assessment) error {
+func record(ctx context.Context, tx pgx.Tx, a Assessment) error {
 	reasons, err := json.Marshal(a.Reasons)
 	if err != nil {
 		return fmt.Errorf("risk: marshal reasons: %w", err)
 	}
-	_, err = s.pool.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO risk_assessments (source_type, source_id, score, decision, reasons)
 		VALUES ('external_transfer', $1, $2, $3, $4)
 	`, a.SourceID, a.Score, a.Decision, reasons)
@@ -238,13 +267,26 @@ func (s *Service) getExisting(ctx context.Context, transferID string) (Assessmen
 // failAndRelease marks transferID failed and releases any placed hold —
 // the identical shape to the rail-failure path in
 // internal/externalpayments/process.go's finalize.
+//
+// ErrHoldNotActive is treated as already released: it means an earlier
+// call released the hold and stopped before marking the row, and this
+// call should finish the job rather than fail on it.
 func (s *Service) failAndRelease(ctx context.Context, transferID string, holdID *string, reason string) error {
 	if holdID != nil {
-		if err := s.ledgerSvc.ReleaseHold(ctx, *holdID); err != nil {
+		if err := s.ledgerSvc.ReleaseHold(ctx, *holdID); err != nil && !errors.Is(err, ledger.ErrHoldNotActive) {
 			return fmt.Errorf("risk: release hold: %w", err)
 		}
 	}
-	_, err := s.pool.Exec(ctx, `
+	return markBlocked(ctx, s.pool, transferID, reason)
+}
+
+// execer is satisfied by both *pgxpool.Pool and pgx.Tx.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func markBlocked(ctx context.Context, db execer, transferID, reason string) error {
+	_, err := db.Exec(ctx, `
 		UPDATE external_transfers SET status = 'failed', risk_status = 'blocked', error = $2, completed_at = now() WHERE id = $1
 	`, transferID, reason)
 	if err != nil {
