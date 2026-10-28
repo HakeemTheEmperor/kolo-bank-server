@@ -9,6 +9,8 @@ cd "$(dirname "$0")/../.."
 : "${DATABASE_URL:?set DATABASE_URL}"
 : "${STRESS_RESULTS:?set STRESS_RESULTS}"
 mkdir -p "$(dirname "$STRESS_RESULTS")"
+# go test runs inside the package directory, so the path must be absolute.
+STRESS_RESULTS="$(cd "$(dirname "$STRESS_RESULTS")" && pwd)/$(basename "$STRESS_RESULTS")"
 export STRESS_RESULTS STRESS_RUNS="${STRESS_RUNS:-5}" STRESS_CRASH_RUNS="${STRESS_CRASH_RUNS:-3}"
 
 # Default build: every protection as shipped (plus the test-side "off"

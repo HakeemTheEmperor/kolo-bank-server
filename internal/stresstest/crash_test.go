@@ -210,22 +210,41 @@ func TestCrashPoints(t *testing.T) {
 	ext := newExternalService(p, ledgerSvc)
 	ctx := context.Background()
 
+	// recordAssessment writes the risk_assessments row exactly as
+	// risk.Service.record does, i.e. the state right before Assess applies
+	// its decision to the transfer.
+	recordAssessment := func(t *testing.T, transferID, decision string, score int) {
+		if _, err := p.Exec(ctx, `
+			INSERT INTO risk_assessments (source_type, source_id, score, decision, reasons)
+			VALUES ('external_transfer', $1, $2, $3, '["crash-point"]')
+		`, transferID, score, decision); err != nil {
+			t.Fatalf("record assessment: %v", err)
+		}
+	}
+
 	type point struct {
 		name   string
 		ref    string
+		want   string // final status the transfer should reach: completed, failed or held
 		before func(t *testing.T, transferID, holdID, key string)
 	}
 	points := []point{
-		{"after_claim_before_rail_call", "ACCT-OK", func(*testing.T, string, string, string) {}},
-		{"after_capture_before_mark_completed", "ACCT-OK", func(t *testing.T, _, holdID, key string) {
+		{"after_claim_before_rail_call", "ACCT-OK", "completed", func(*testing.T, string, string, string) {}},
+		{"after_capture_before_mark_completed", "ACCT-OK", "completed", func(t *testing.T, _, holdID, key string) {
 			if _, err := ledgerSvc.CaptureHold(ctx, holdID, key); err != nil {
 				t.Fatalf("capture: %v", err)
 			}
 		}},
-		{"after_release_before_mark_failed", "ACCT-RAILFAIL", func(t *testing.T, _, holdID, _ string) {
+		{"after_release_before_mark_failed", "ACCT-RAILFAIL", "failed", func(t *testing.T, _, holdID, _ string) {
 			if err := ledgerSvc.ReleaseHold(ctx, holdID); err != nil {
 				t.Fatalf("release: %v", err)
 			}
+		}},
+		{"after_risk_block_recorded_before_applied", "ACCT-FRAUDSCORE", "failed", func(t *testing.T, id, _, _ string) {
+			recordAssessment(t, id, "block", 100)
+		}},
+		{"after_risk_hold_recorded_before_applied", "ACCT-OK", "held", func(t *testing.T, id, _, _ string) {
+			recordAssessment(t, id, "hold", 70)
 		}},
 	}
 
@@ -263,20 +282,27 @@ func TestCrashPoints(t *testing.T) {
 			}
 		}
 
-		var final, stuck, double int
+		var double int
 		if err := p.QueryRow(ctx, `
-			SELECT count(*) FILTER (WHERE status IN ('completed', 'failed')),
-			       count(*) FILTER (WHERE status NOT IN ('completed', 'failed')),
-			       count(*) FILTER (WHERE (SELECT count(*) FROM ledger_transactions lt WHERE lt.idempotency_key = et.idempotency_key) > 1)
-			FROM external_transfers et WHERE idempotency_key = ANY($1)
-		`, keys).Scan(&final, &stuck, &double); err != nil {
+			SELECT count(*) FROM external_transfers et WHERE idempotency_key = ANY($1)
+			  AND (SELECT count(*) FROM ledger_transactions lt WHERE lt.idempotency_key = et.idempotency_key) > 1
+		`, keys).Scan(&double); err != nil {
 			t.Fatal(err)
 		}
-		wrong := 0
+		outcomes := map[string]int{}
+		matched, wrong := 0, 0
 		for i, id := range ids {
-			var status string
-			if err := p.QueryRow(ctx, `SELECT status FROM external_transfers WHERE idempotency_key = $1`, keys[i]).Scan(&status); err != nil {
+			var status, riskStatus string
+			if err := p.QueryRow(ctx, `SELECT status, risk_status FROM external_transfers WHERE idempotency_key = $1`, keys[i]).Scan(&status, &riskStatus); err != nil {
 				t.Fatal(err)
+			}
+			got := status
+			if status == "pending" && riskStatus == "held" {
+				got = "held"
+			}
+			outcomes[got]++
+			if got == pt.want {
+				matched++
 			}
 			want := int64(10_000)
 			if status == "completed" {
@@ -286,8 +312,13 @@ func TestCrashPoints(t *testing.T) {
 				wrong++
 			}
 		}
+		stillActive := 0
+		for _, id := range ids {
+			_, a, _ := holdStats(t, p, id)
+			stillActive += a
+		}
 		record(t, result{Test: "crash_recovery", Scenario: "crash point: " + pt.name, Protection: "as_shipped", Run: 1,
-			Metrics: map[string]any{"transfers": perPoint, "reached_final_state": final, "stuck": stuck,
-				"double_postings": double, "accounts_with_wrong_balance": wrong}})
+			Metrics: map[string]any{"transfers": perPoint, "expected_outcome": pt.want, "reached_expected_outcome": matched,
+				"outcomes": outcomes, "double_postings": double, "accounts_with_wrong_balance": wrong, "active_holds_left": stillActive}})
 	}
 }
