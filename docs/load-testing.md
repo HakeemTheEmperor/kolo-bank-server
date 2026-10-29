@@ -9,7 +9,7 @@
 | Error rate | < 1% |
 | Soak duration | 5 minutes sustained at concurrency 20 |
 
-These are demo-scale targets for a docker-compose-scale deployment (single API instance, single Postgres, no connection pooling tuning beyond defaults) — not a production SLA. They exist so "hit the latency and availability targets" (docs/banking-backend-spec.md §Phase 10) is a script exit code, not eyeballing a log.
+These are demo-scale targets for a docker-compose-scale deployment (single API instance, single Postgres, a 20-connection database pool set in `docker-compose.yml`'s `DATABASE_URL`) — not a production SLA. They exist so "hit the latency and availability targets" (docs/banking-backend-spec.md §Phase 10) is a script exit code, not eyeballing a log.
 
 ## Load/soak testing
 
@@ -26,6 +26,12 @@ go run ./cmd/loadtest -base-url=http://localhost:8080 -duration=5m -concurrency=
 ```
 
 Flags: `-concurrency`, `-duration`, `-seed-accounts`, `-max-error-rate`, `-max-p99-read`, `-max-p99-write`, `-base-url`, `-database-url` (seeding only — never used for the load traffic itself, which goes over real HTTP).
+
+The seeded pairs have no earlier posted transfer between them, so `coolingoff.Send` treats every write as a first-time payee and places a cooling-off hold rather than posting immediately (from reading the code; not measured).
+
+## k6 throughput test
+
+`scripts/stress/run-k6.sh` runs k6 against `POST /v1/me/transfers` on the immediate path (each pair gets one earlier posted transfer), at 10, 25, 50, 100 and 200 VUs, seeding fresh senders for each level because per-request cost grows with the sender's history. Measured results, the pool-size comparison and the commands are in [`METRICS.md`](../METRICS.md), test 7.
 
 ## Chaos testing
 

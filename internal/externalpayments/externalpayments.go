@@ -1,13 +1,15 @@
 // Package externalpayments routes money across the bank's boundary through
 // a simulated external rail (docs/banking-backend-spec.md §3.4). It adds no
 // new ledger primitives: outbound transfers reuse holds
-// (ledger.Service.PlaceHold/CaptureHold/ReleaseHold) exactly as designed —
+// (ledger.Service.PlaceHoldTx/CaptureHold/ReleaseHold) exactly as designed —
 // reserve now, settle or release once the rail responds — and inbound
 // transfers reuse ledger.Service.Credit. The claim -> external-call ->
 // finalize shape, and the in-flight resolver that retries a stuck claim
 // with the same deterministic key, mirror internal/scheduler (Phase 3)
 // exactly; only the "external call" step (a rail, not a due-time check)
-// differs.
+// differs. The hold and the external_transfers row that owns it are
+// written in one transaction (see send), so a retry or a crash can't
+// leave a hold with nothing pointing at it.
 package externalpayments
 
 import (

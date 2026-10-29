@@ -5,7 +5,7 @@
 // resolution mirrors internal/payments.SendToRecipientEmail, tier-limit
 // enforcement reuses payments.Service.CheckLimits, name comparison reuses
 // internal/payee, and a high-risk transfer is deferred via
-// ledger.Service.PlaceHold/ReleaseHold — the same hold-then-settle
+// ledger.Service.PlaceHoldTx/ReleaseHold — the same hold-then-settle
 // primitive Phases 3/4/7 already rely on — rather than a bespoke
 // reservation mechanism.
 package coolingoff

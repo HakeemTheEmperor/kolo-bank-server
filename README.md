@@ -155,7 +155,7 @@ Grouped roughly by where each package sits in the request flow above. Each packa
 
 | Package | What it does |
 |---|---|
-| `internal/ledger` | The double-entry ledger itself: accounts, transactions, entries, holds. `Credit`/`Debit`/`Transfer`/`PlaceHold`/`CaptureHold`/`ReleaseHold`/`ReverseTransaction` are the only five primitives every other money-moving feature composes. Enforces balance and double-entry invariants at the DB level (see `db/migrations/00006_ledger_invariants.sql`). |
+| `internal/ledger` | The double-entry ledger itself: accounts, transactions, entries, holds. `Credit`/`Debit`/`Transfer`/`PlaceHold`/`CaptureHold`/`ReleaseHold`/`ReverseTransaction` are the only five primitives every other money-moving feature composes. `PlaceHoldTx` is `PlaceHold` inside the caller's transaction, so a hold and the row that owns it (an external or cooling-off transfer) commit together. Enforces balance and double-entry invariants at the DB level (see `db/migrations/00006_ledger_invariants.sql`). |
 | `internal/idempotency` | Makes mutating ledger operations safe to retry via the `Idempotency-Key` header contract. |
 | `internal/audit` | Append-only audit log trail for money-moving and sensitive actions. |
 
@@ -260,7 +260,7 @@ All configuration is environment variables, loaded once at startup by `internal/
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | **yes** | — | Postgres DSN. `Load()` fails fast if unset. |
+| `DATABASE_URL` | **yes** | — | Postgres DSN. `Load()` fails fast if unset. pgx reads pool settings from it; without `pool_max_conns` the pool is `max(4, CPU count)` connections. `docker-compose.yml` sets `pool_max_conns=20` (see `METRICS.md`, test 7). |
 | `HTTP_ADDR` | no | `:8080` | Address the API listens on. |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error`. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | *(unset)* | OpenTelemetry collector endpoint; empty disables export (stdout fallback). |
@@ -286,7 +286,7 @@ Beyond `go test`, two more verification tools live in `scripts/` (see `docs/dr-r
 - `make dr-drill` — a real backup/restore/failover drill against the running stack, reporting measured RTO.
 - `make chaos-drill` — runs `make loadtest` in the background while killing and restarting the `api` and `postgres` containers mid-flight, then asserts the system recovered with no stuck transactions and the double-entry invariant intact.
 - `make loadtest` — a standalone load/soak test (`cmd/loadtest`) against the running API, reporting p50/p95/p99 latency and error rate.
-- `internal/stresstest` (build tag `stress`) and `scripts/stress/` — concurrency, idempotency, hold-race, crash-recovery, webhook-retry and k6 throughput measurements, each run with the protection on and off. Results and the commands to rerun them are in [`METRICS.md`](METRICS.md).
+- `internal/stresstest` (build tag `stress`) and `scripts/stress/` — concurrency, idempotency, hold-race, crash-recovery, webhook-retry and k6 throughput measurements, each run with the protection on and off. Results and the commands to rerun them are in [`METRICS.md`](METRICS.md). Unlike the `make` targets, these scripts run Go on the host (they build and SIGKILL a worker binary and run the API next to k6), so they need a local Go 1.25 toolchain as well as Docker.
 
 When adding a feature, match the existing test shape for that layer:
 - **Service-layer tests** (`internal/<pkg>/*_test.go`) exercise the service directly against `testsupport.RequireTestPool`, including concurrent/idempotency-retry cases where relevant.
